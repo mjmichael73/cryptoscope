@@ -1,0 +1,38 @@
+# Environment
+.env
+*.env.local
+
+# Go
+bin/
+/vendor/
+*.test
+*.out
+coverage.out
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Node / tooling
+node_modules/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Local data volumes
+.data/
+*.log
+
+# Generated protobuf stubs are committed intentionally, but keep temp dirs out
+/tmp/
