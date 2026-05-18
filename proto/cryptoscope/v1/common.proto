@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package cryptoscope.v1;
+
+option go_package = "github.com/mojimich2015/cryptoscope/proto/cryptoscope/v1;cryptoscopev1";
+
+// Tenant carries the identity that scopes every request in the platform.
+message Tenant {
+  string id = 1;
+  string slug = 2;
+}
+
+// Interval enumerates the candle resolutions the platform supports.
+enum Interval {
+  INTERVAL_UNSPECIFIED = 0;
+  INTERVAL_1M = 1;
+  INTERVAL_5M = 2;
+  INTERVAL_1H = 3;
+  INTERVAL_1D = 4;
+}

@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package cryptoscope.v1;
+
+import "cryptoscope/v1/common.proto";
+
+option go_package = "github.com/mojimich2015/cryptoscope/proto/cryptoscope/v1;cryptoscopev1";
+
+// QueryService is the read side of the platform. It serves analytics derived
+// from the market data pipeline and denormalized configuration read models.
+service QueryService {
+  rpc GetCandles(GetCandlesRequest) returns (GetCandlesResponse);
+  rpc GetIndicator(GetIndicatorRequest) returns (GetIndicatorResponse);
+  rpc ListSymbols(ListSymbolsRequest) returns (ListSymbolsResponse);
+}
+
+message Candle {
+  int64 open_time = 1;
+  double open = 2;
+  double high = 3;
+  double low = 4;
+  double close = 5;
+  double volume = 6;
+}
+
+message GetCandlesRequest {
+  string tenant_id = 1;
+  string symbol = 2;
+  Interval interval = 3;
+  int64 from_ms = 4;
+  int64 to_ms = 5;
+}
+
+message GetCandlesResponse {
+  repeated Candle candles = 1;
+}
+
+message GetIndicatorRequest {
+  string tenant_id = 1;
+  string symbol = 2;
+  Interval interval = 3;
+  // type is one of: sma, ema, volatility.
+  string type = 4;
+  int32 period = 5;
+}
+
+message IndicatorPoint {
+  int64 time = 1;
+  double value = 2;
+}
+
+message GetIndicatorResponse {
+  repeated IndicatorPoint points = 1;
+}
+
+message ListSymbolsRequest {
+  string tenant_id = 1;
+}
+
+message ListSymbolsResponse {
+  repeated string symbols = 1;
+}

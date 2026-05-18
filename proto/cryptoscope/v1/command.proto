@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package cryptoscope.v1;
+
+option go_package = "github.com/mojimich2015/cryptoscope/proto/cryptoscope/v1;cryptoscopev1";
+
+// CommandService is the write side of the platform. It owns tenant
+// configuration and emits domain events consumed elsewhere.
+service CommandService {
+  rpc CreateWatchlist(CreateWatchlistRequest) returns (CreateWatchlistResponse);
+  rpc CreateAlertRule(CreateAlertRuleRequest) returns (CreateAlertRuleResponse);
+}
+
+message CreateWatchlistRequest {
+  string tenant_id = 1;
+  string idempotency_key = 2;
+  string name = 3;
+  repeated string symbols = 4;
+}
+
+message CreateWatchlistResponse {
+  string id = 1;
+}
+
+message CreateAlertRuleRequest {
+  string tenant_id = 1;
+  string idempotency_key = 2;
+  string symbol = 3;
+  // comparator is one of: above, below.
+  string comparator = 4;
+  double threshold = 5;
+}
+
+message CreateAlertRuleResponse {
+  string id = 1;
+}
