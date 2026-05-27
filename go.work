@@ -3,4 +3,5 @@ go 1.25
 use (
 	./proto
 	./libs/go
+	./services/ingest-service
 )
