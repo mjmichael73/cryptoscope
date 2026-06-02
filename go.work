@@ -4,4 +4,5 @@ use (
 	./proto
 	./libs/go
 	./services/ingest-service
+	./services/stream-processor
 )
