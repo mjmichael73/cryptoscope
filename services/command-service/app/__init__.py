@@ -1,0 +1,1 @@
+"""cryptoscope command service package."""
