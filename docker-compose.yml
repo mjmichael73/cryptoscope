@@ -1,0 +1,290 @@
+# cryptoscope local development stack.
+# Starts all services and their dependencies so the full pipeline can run on a
+# single machine. Services that are still under development log a placeholder
+# until they ship.
+#
+# Usage:
+#   docker compose up -d --build
+#   docker compose logs -f
+#   docker compose down -v
+
+name: cryptoscope
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ---------------------------------------------------------------------------
+  # Data stores
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cryptoscope
+      POSTGRES_PASSWORD: cryptoscope
+      POSTGRES_DB: cryptoscope
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cryptoscope"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging: *default-logging
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    environment:
+      CLICKHOUSE_USER: cryptoscope
+      CLICKHOUSE_PASSWORD: cryptoscope
+      CLICKHOUSE_DB: cryptoscope
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - chdata:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging: *default-logging
+
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: cryptoscope
+      MONGO_INITDB_ROOT_PASSWORD: cryptoscope
+      MONGO_INITDB_DATABASE: cryptoscope
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet -u cryptoscope -p cryptoscope
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Message broker
+  # ---------------------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    logging: *default-logging
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6
+    depends_on:
+      zookeeper:
+        condition: service_started
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Observability
+  # ---------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    command: ["--config=/etc/otel-collector.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otel-collector.yaml
+    logging: *default-logging
+
+  prometheus:
+    image: prom/prometheus:v2.52
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yaml:/etc/prometheus/prometheus.yaml
+      - promdata:/prometheus
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:10.4
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: cryptoscope
+      GF_INSTALL_PLUGINS: ""
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafanadata:/var/lib/grafana
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Application services
+  # ---------------------------------------------------------------------------
+  ingest-service:
+    build:
+      context: .
+      dockerfile: services/ingest-service/Dockerfile
+    environment:
+      LOG_LEVEL: debug
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC_TICKS: market.ticks.raw
+      REDIS_ADDR: redis:6379
+      BINANCE_BASE_URL: https://api.binance.com
+      COINBASE_BASE_URL: https://api.exchange.coinbase.com
+      INGEST_SYMBOLS: BTCUSDT,ETHUSDT,SOLUSDT
+      INGEST_POLL_INTERVAL_SECONDS: 15
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: cryptoscope
+      PROMETHEUS_METRICS_PORT: "9100"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging: *default-logging
+
+  stream-processor:
+    build:
+      context: .
+      dockerfile: services/stream-processor/Dockerfile
+    environment:
+      LOG_LEVEL: debug
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC_TICKS: market.ticks.raw
+      KAFKA_CONSUMER_GROUP: cryptoscope
+      MONGO_URI: mongodb://cryptoscope:cryptoscope@mongo:27017
+      MONGO_DB: cryptoscope
+      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_DB: cryptoscope
+      CLICKHOUSE_USER: cryptoscope
+      CLICKHOUSE_PASSWORD: cryptoscope
+      TENANT_ID: demo-tenant
+      INTERVALS: 1m,5m,1h,1d
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: cryptoscope
+      PROMETHEUS_METRICS_PORT: "9100"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    logging: *default-logging
+
+  command-service:
+    build:
+      context: .
+      dockerfile: services/command-service/Dockerfile
+    environment:
+      LOG_LEVEL: debug
+      POSTGRES_DSN: postgres://cryptoscope:cryptoscope@postgres:5432/cryptoscope?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC_EVENTS: domain.events
+      COMMAND_SERVICE_HTTP_PORT: "8002"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: cryptoscope
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8002"
+    logging: *default-logging
+
+  query-service:
+    build:
+      context: .
+      dockerfile: services/query-service/Dockerfile
+    environment:
+      LOG_LEVEL: debug
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HTTP_PORT: 8123
+      CLICKHOUSE_DB: cryptoscope
+      CLICKHOUSE_USER: cryptoscope
+      CLICKHOUSE_PASSWORD: cryptoscope
+      QUERY_SERVICE_HTTP_PORT: "8001"
+      QUERY_SERVICE_GRPC_PORT: "9001"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: cryptoscope
+    ports:
+      - "8001:8001"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    logging: *default-logging
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    environment:
+      LOG_LEVEL: debug
+      API_GATEWAY_HTTP_PORT: "8080"
+      QUERY_SERVICE_GRPC_ADDR: query-service:9001
+      COMMAND_SERVICE_HTTP_ADDR: http://command-service:8002
+      REDIS_ADDR: redis:6379
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/cryptoscope/protocol/openid-connect/certs
+      KEYCLOAK_ISSUER: http://keycloak:8080/realms/cryptoscope
+      KEYCLOAK_AUDIENCE: cryptoscope-api
+      RATE_LIMIT_REQUESTS_PER_MINUTE: "120"
+      RATE_LIMIT_BURST: "40"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: cryptoscope
+      PROMETHEUS_METRICS_PORT: "9100"
+    ports:
+      - "8080:8080"
+    depends_on:
+      query-service:
+        condition: service_started
+      command-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    logging: *default-logging
+
+volumes:
+  pgdata:
+  chdata:
+  mongodata:
+  promdata:
+  grafanadata:
