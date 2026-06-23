@@ -5,4 +5,5 @@ use (
 	./libs/go
 	./services/ingest-service
 	./services/stream-processor
+	./services/api-gateway
 )
