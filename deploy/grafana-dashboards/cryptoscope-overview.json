@@ -1,0 +1,29 @@
+{
+  "title": "cryptoscope Overview",
+  "uid": "cryptoscope-overview",
+  "version": 1,
+  "panels": [
+    {
+      "title": "Ingestion Rate",
+      "type": "graph",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "rate(cryptoscope_ticks_published_total[1m])",
+          "legendFormat": "ticks/s"
+        }
+      ]
+    },
+    {
+      "title": "Candles Produced",
+      "type": "graph",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "rate(cryptoscope_candles_written_total[1m])",
+          "legendFormat": "candles/s"
+        }
+      ]
+    }
+  ]
+}
