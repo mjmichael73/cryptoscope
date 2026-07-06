@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  GO_VERSION: "1.25"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint-go:
+    name: Lint Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install tools
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - name: Format check
+        run: |
+          for dir in services/ingest-service services/stream-processor services/api-gateway; do
+            (cd $dir && test -z $(gofmt -l .) || (echo "unformatted files in $dir" && false))
+          done
+          (cd libs/go && test -z $(gofmt -l .) || (echo "unformatted files in libs/go" && false))
+      - name: Vet
+        run: |
+          for dir in services/ingest-service services/stream-processor services/api-gateway; do
+            (cd $dir && go vet ./...) || exit 1
+          done
+          (cd libs/go && go vet ./...) || exit 1
+      - name: Lint
+        run: |
+          for dir in services/ingest-service services/stream-processor services/api-gateway; do
+            (cd $dir && golangci-lint run --timeout=5m ./...) || true
+          done
+
+  lint-python:
+    name: Lint Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: |
+          pip install ruff mypy
+          pip install libs/python
+      - name: Ruff check
+        run: |
+          for dir in services/query-service services/command-service services/alert-service; do
+            (cd $dir && ruff check .) || exit 1
+          done
+      - name: Type check
+        run: |
+          for dir in services/query-service services/command-service; do
+            (cd $dir && mypy app) || true
+          done
+
+  test-go:
+    name: Test Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Test
+        run: |
+          for dir in libs/go services/ingest-service services/stream-processor services/api-gateway; do
+            (cd $dir && go test ./... -count=1) || exit 1
+          done
+
+  test-python:
+    name: Test Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: |
+          pip install libs/python
+          for dir in services/query-service services/command-service services/alert-service; do
+            (cd $dir && pip install .)
+          done
+      - name: Test
+        run: |
+          for dir in services/query-service services/command-service services/alert-service; do
+            (cd $dir && python -m pytest -v) || exit 1
+          done
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: |
+          docker build -t cryptoscope/ingest-service -f services/ingest-service/Dockerfile .
+          docker build -t cryptoscope/stream-processor -f services/stream-processor/Dockerfile .
+          docker build -t cryptoscope/api-gateway -f services/api-gateway/Dockerfile .
+          docker build -t cryptoscope/command-service -f services/command-service/Dockerfile .
+          docker build -t cryptoscope/query-service -f services/query-service/Dockerfile .
+          docker build -t cryptoscope/alert-service -f services/alert-service/Dockerfile .

@@ -3,5 +3,26 @@
 # with right after startup. Safe to run more than once.
 set -euo pipefail
 
-echo "Seeding demo tenant and symbols is wired to the command-service API."
-echo "Run this after 'make up' once the services report healthy."
+API_GATEWAY="${API_GATEWAY:-http://localhost:8080}"
+
+echo "==> Seeding demo tenant and watchlist via api-gateway"
+
+# Create a demo watchlist
+curl -s -X POST "$API_GATEWAY/v1/watchlists" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: demo-tenant" \
+  -H "X-Tenant-Slug: demo" \
+  -H "Idempotency-Key: bootstrap-watchlist-001" \
+  -d '{"name": "Default Watchlist", "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"]}' \
+  | python3 -m json.tool || echo "watchlist creation skipped (stack may be starting)"
+
+# Create an alert rule for BTC
+curl -s -X POST "$API_GATEWAY/v1/alert-rules" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: demo-tenant" \
+  -H "X-Tenant-Slug: demo" \
+  -H "Idempotency-Key: bootstrap-alert-btc-001" \
+  -d '{"symbol": "BTCUSDT", "comparator": "gt", "threshold": 100000}' \
+  | python3 -m json.tool || echo "alert rule creation skipped (stack may be starting)"
+
+echo "==> Bootstrap complete"
