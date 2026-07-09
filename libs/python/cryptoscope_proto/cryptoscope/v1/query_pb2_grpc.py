@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from cryptoscope.v1 import query_pb2 as cryptoscope_dot_v1_dot_query__pb2
+from cryptoscope_proto.cryptoscope.v1 import query_pb2 as cryptoscope_dot_v1_dot_query__pb2
 
 GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__

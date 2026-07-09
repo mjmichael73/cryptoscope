@@ -1,0 +1,48 @@
+[project]
+name = "cryptoscope-query-service"
+version = "0.1.0"
+description = "CQRS read side for cryptoscope: serves candles, indicators, and symbols"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "clickhouse-connect>=0.7.0",
+    "redis>=5.0.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "cryptoscope-shared",
+    "grpcio>=1.62.0",
+    "protobuf>=4.25.0",
+    "opentelemetry-instrumentation-fastapi>=0.45b0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.1.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    "ruff>=0.4.0",
+    "mypy>=1.9.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["cryptoscope_shared.*", "cryptoscope_proto.*", "clickhouse_connect.*", "grpc.*"]
+ignore_missing_imports = true

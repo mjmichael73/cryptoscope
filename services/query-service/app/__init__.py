@@ -1,0 +1,1 @@
+"""cryptoscope query service package."""

@@ -9,12 +9,26 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/mojimich2015/cryptoscope/proto/cryptoscope/v1"
+	cryptov1 "github.com/mojimich2015/cryptoscope/proto/cryptoscope/v1"
 )
+
+var intervalMap = map[string]cryptov1.Interval{
+	"1m": cryptov1.Interval_INTERVAL_1M,
+	"5m": cryptov1.Interval_INTERVAL_5M,
+	"1h": cryptov1.Interval_INTERVAL_1H,
+	"1d": cryptov1.Interval_INTERVAL_1D,
+}
+
+func intervalFromString(s string) cryptov1.Interval {
+	if v, ok := intervalMap[s]; ok {
+		return v
+	}
+	return cryptov1.Interval_INTERVAL_1M
+}
 
 type QueryClient struct {
 	conn   *grpc.ClientConn
-	client cryptoscope.QueryServiceClient
+	client cryptov1.QueryServiceClient
 }
 
 func NewQueryClient(addr string) (*QueryClient, error) {
@@ -34,15 +48,15 @@ func NewQueryClient(addr string) (*QueryClient, error) {
 
 	return &QueryClient{
 		conn:   conn,
-		client: cryptoscope.NewQueryServiceClient(conn),
+		client: cryptov1.NewQueryServiceClient(conn),
 	}, nil
 }
 
-func (c *QueryClient) GetCandles(ctx context.Context, tenantID, symbol, interval string, fromMs, toMs int64) ([]*cryptoscope.Candle, error) {
-	resp, err := c.client.GetCandles(ctx, &cryptoscope.GetCandlesRequest{
+func (c *QueryClient) GetCandles(ctx context.Context, tenantID, symbol, interval string, fromMs, toMs int64) ([]*cryptov1.Candle, error) {
+	resp, err := c.client.GetCandles(ctx, &cryptov1.GetCandlesRequest{
 		TenantId: tenantID,
 		Symbol:   symbol,
-		Interval: cryptoscope.Interval(cryptoscope.Interval_value[interval]),
+		Interval: intervalFromString(interval),
 		FromMs:   fromMs,
 		ToMs:     toMs,
 	})
@@ -52,15 +66,13 @@ func (c *QueryClient) GetCandles(ctx context.Context, tenantID, symbol, interval
 	return resp.Candles, nil
 }
 
-func (c *QueryClient) GetIndicator(ctx context.Context, tenantID, symbol, interval, indicatorType string, period int, fromMs, toMs int64) ([]*cryptoscope.IndicatorPoint, error) {
-	resp, err := c.client.GetIndicator(ctx, &cryptoscope.GetIndicatorRequest{
+func (c *QueryClient) GetIndicator(ctx context.Context, tenantID, symbol, interval, indicatorType string, period int32) ([]*cryptov1.IndicatorPoint, error) {
+	resp, err := c.client.GetIndicator(ctx, &cryptov1.GetIndicatorRequest{
 		TenantId: tenantID,
 		Symbol:   symbol,
-		Interval: cryptoscope.Interval(cryptoscope.Interval_value[interval]),
+		Interval: intervalFromString(interval),
 		Type:     indicatorType,
-		Period:   int32(period),
-		FromMs:   fromMs,
-		ToMs:     toMs,
+		Period:   period,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get indicator: %w", err)
@@ -69,7 +81,7 @@ func (c *QueryClient) GetIndicator(ctx context.Context, tenantID, symbol, interv
 }
 
 func (c *QueryClient) ListSymbols(ctx context.Context, tenantID string) ([]string, error) {
-	resp, err := c.client.ListSymbols(ctx, &cryptoscope.ListSymbolsRequest{
+	resp, err := c.client.ListSymbols(ctx, &cryptov1.ListSymbolsRequest{
 		TenantId: tenantID,
 	})
 	if err != nil {

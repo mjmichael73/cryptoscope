@@ -22,5 +22,11 @@ python -m grpc_tools.protoc -I "$PROTO_DIR" \
   --grpc_python_out="$PY_OUT" \
   "$PROTO_DIR"/cryptoscope/v1/*.proto
 touch "$PY_OUT/__init__.py"
+touch "$PY_OUT/cryptoscope/__init__.py" "$PY_OUT/cryptoscope/v1/__init__.py"
+
+# protoc emits flat "from cryptoscope.v1 import ..." imports. Rewrite them to the
+# installed package path so the stubs import cleanly as cryptoscope_proto.
+sed -i 's/^from cryptoscope\.v1 import/from cryptoscope_proto.cryptoscope.v1 import/' \
+  "$PY_OUT"/cryptoscope/v1/*.py
 
 echo "==> done"
