@@ -1,0 +1,22 @@
+# Test image for a Python service. Pre-installs dependencies so containers
+# start instantly. Source code is baked in too, but a bind mount at runtime
+# overlays it so edits take effect without rebuilding.
+ARG SERVICE
+
+FROM python:3.12-slim
+
+ARG SERVICE
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+COPY libs/python /libs/python
+RUN pip install -q /libs/python
+
+COPY services/$SERVICE/pyproject.toml .
+COPY services/$SERVICE/app ./app
+RUN pip install -q ".[dev]"
+
+CMD ["python", "-m", "pytest", "-v"]

@@ -1,0 +1,154 @@
+# Test runner services for cryptoscope.
+# Every command in the Makefile routes through these services so the only
+# dependency on the host is Docker. Source code is mounted as a bind volume,
+# so edits are reflected immediately without rebuilding.
+#
+# Usage:
+#   docker compose -f docker-compose.tests.yml run --rm test-gateway
+#   make test-go          # shorthand for all Go tests
+#   make test-python      # shorthand for all Python tests
+
+name: cryptoscope-tests
+
+x-volumes:
+  base: &base
+    - ./proto:/app/proto
+    - ./libs:/app/libs
+    - ./services:/app/services
+    - ./go.work:/app/go.work
+    - ./go.work.sum:/app/go.work.sum
+
+services:
+  # ── Go services ───────────────────────────────────────────────────────
+  test-ingest:
+    image: golang:1.25-alpine
+    working_dir: /app/services/ingest-service
+    entrypoint: ["go", "test", "./...", "-count=1"]
+    volumes: *base
+
+  test-processor:
+    image: golang:1.25-alpine
+    working_dir: /app/services/stream-processor
+    entrypoint: ["go", "test", "./...", "-count=1"]
+    volumes: *base
+
+  test-gateway:
+    image: golang:1.25-alpine
+    working_dir: /app/services/api-gateway
+    entrypoint: ["go", "test", "./...", "-count=1"]
+    volumes: *base
+
+  test-libs-go:
+    image: golang:1.25-alpine
+    working_dir: /app/libs/go
+    entrypoint:
+      - sh
+      - -c
+      - |
+        for mod in config idempotency kafka logging metrics ratelimit tenant tracing; do
+          echo "==> testing libs/go/$$mod"
+          cd /app/libs/go/$$mod && go test ./... -count=1 || exit 1
+        done
+    volumes: *base
+
+  # ── Python services ───────────────────────────────────────────────────
+  test-command:
+    build:
+      context: .
+      dockerfile: Dockerfile.test.python
+      args:
+        SERVICE: command-service
+    image: cryptoscope-test-command
+    volumes:
+      - ./services/command-service:/app
+      - ./libs/python:/libs/python
+    working_dir: /app
+
+  test-query:
+    build:
+      context: .
+      dockerfile: Dockerfile.test.python
+      args:
+        SERVICE: query-service
+    image: cryptoscope-test-query
+    volumes:
+      - ./services/query-service:/app
+      - ./libs/python:/libs/python
+    working_dir: /app
+
+  test-alert:
+    build:
+      context: .
+      dockerfile: Dockerfile.test.python
+      args:
+        SERVICE: alert-service
+    image: cryptoscope-test-alert
+    volumes:
+      - ./services/alert-service:/app
+      - ./libs/python:/libs/python
+    working_dir: /app
+
+  test-libs-python:
+    image: python:3.12-slim
+    working_dir: /app
+    entrypoint:
+      - sh
+      - -c
+      - |
+        pip install -q . pytest pytest-asyncio
+        exec python -m pytest -v
+    volumes:
+      - ./libs/python:/app
+
+  # ── Lint services ─────────────────────────────────────────────────────
+  lint-go:
+    image: golang:1.25-alpine
+    working_dir: /app
+    entrypoint:
+      - sh
+      - -c
+      - |
+        echo "==> linting Go services"
+        for svc in ingest-service stream-processor api-gateway; do
+          echo "--- $$svc ---"
+          cd /app/services/$$svc
+          gofmt -l . && go vet ./... || exit 1
+        done
+        echo "--- libs/go ---"
+        cd /app/libs/go
+        gofmt -l . && go vet ./... || exit 1
+    volumes: *base
+
+  lint-python:
+    image: python:3.12-slim
+    working_dir: /app
+    entrypoint:
+      - sh
+      - -c
+      - |
+        pip install -q ruff mypy
+        for svc in command-service query-service alert-service; do
+          echo "--- $$svc ---"
+          cd /app/services/$$svc
+          pip install -q /app/libs/python ".[dev]" 2>/dev/null
+          ruff check . || exit 1
+          mypy app || exit 1
+          cd /app
+        done
+        echo "--- libs/python ---"
+        cd /app/libs/python
+        ruff check . || exit 1
+    volumes: *base
+
+  # ── Utilities ─────────────────────────────────────────────────────────
+  proto:
+    build:
+      context: .
+      dockerfile: Dockerfile.proto
+    working_dir: /app
+    entrypoint: ["sh", "/app/scripts/gen_proto.sh"]
+    volumes:
+      - ./proto:/app/proto
+      - ./libs:/app/libs
+      - ./services:/app/services
+      - ./scripts:/app/scripts
