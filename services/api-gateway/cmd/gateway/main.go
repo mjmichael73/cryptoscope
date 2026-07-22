@@ -65,7 +65,7 @@ func main() {
 	}
 	defer queryClient.Close()
 
-	gw := gateway.New(queryClient, cfg.CommandHTTP, logger, limiter, keystore)
+	gw := gateway.New(queryClient, cfg.CommandHTTP, cfg.AlertHTTP, logger, limiter, keystore, cfg.DevMode)
 
 	httpServer := &http.Server{
 		Addr:         cfg.HTTPPort,

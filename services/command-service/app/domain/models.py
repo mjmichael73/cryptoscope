@@ -114,7 +114,9 @@ class AlertRule(Base):
     symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     comparator: Mapped[str] = mapped_column(String(8), nullable=False)
     threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
     __table_args__ = (
         Index("ix_alert_rule_tenant_symbol", "tenant_id", "symbol"),

@@ -39,13 +39,13 @@ func Load() Config {
 		MongoURI: shared.Getenv("MONGO_URI", "mongodb://localhost:27017"),
 		MongoDB:  shared.Getenv("MONGO_DB", "cryptoscope"),
 
-		ClickHouseAddr:     shared.Getenv("CLICKHOUSE_HOST", "localhost") + ":" + shared.Getenv("CLICKHOUSE_PORT", "9000"),
+		ClickHouseAddr:     shared.Getenv("CLICKHOUSE_ADDR", "localhost:9000"),
 		ClickHouseDB:       shared.Getenv("CLICKHOUSE_DB", "cryptoscope"),
 		ClickHouseUser:     shared.Getenv("CLICKHOUSE_USER", "cryptoscope"),
 		ClickHousePassword: shared.Getenv("CLICKHOUSE_PASSWORD", "cryptoscope"),
 
 		Intervals: shared.GetenvList("PROCESSOR_INTERVALS", []string{"1m", "5m", "1h"}),
-		TenantID:  shared.Getenv("PLATFORM_TENANT_ID", "00000000-0000-0000-0000-000000000001"),
+		TenantID:  shared.Getenv("TENANT_ID", "00000000-0000-0000-0000-000000000001"),
 
 		OTLPEndpoint:  shared.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
 		OTLPNamespace: shared.Getenv("OTEL_SERVICE_NAMESPACE", "cryptoscope"),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
@@ -26,7 +27,11 @@ func NewMongoArchive(ctx context.Context, uri, database string) (*MongoArchive, 
 
 	// An index on tenant, symbol, and time keeps audit lookups fast.
 	_, err = collection.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: map[string]int{"tenant_id": 1, "symbol": 1, "ts_millis": -1},
+		Keys: primitive.D{
+			{Key: "tenant_id", Value: 1},
+			{Key: "symbol", Value: 1},
+			{Key: "ts_millis", Value: -1},
+		},
 	})
 	if err != nil {
 		return nil, err

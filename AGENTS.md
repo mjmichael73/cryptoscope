@@ -39,6 +39,13 @@ itself.
 │   ├── command-service/           # Python/FastAPI — write-side: watchlists, alert rules → Kafka events
 │   ├── query-service/             # Python/FastAPI — read-side: candles, indicators, symbols
 │   └── alert-service/             # Python/FastAPI — consumes events, evaluates rules, emits triggers
+├── frontend/                      # React + TypeScript SPA (Vite, Tailwind, Recharts)
+│   ├── src/
+│   │   ├── api/client.ts          #   REST client for all backend endpoints
+│   │   ├── components/            #   Layout, CandleChart, IndicatorChart
+│   │   ├── pages/                 #   Dashboard, MarketData, Watchlists, AlertRules, Triggers, Health
+│   │   └── types/index.ts         #   shared TypeScript interfaces
+│   └── Dockerfile                 #   nginx production image
 ├── migrations/
 │   └── command-service/           # Alembic migrations for the command service
 ├── scripts/
@@ -48,7 +55,7 @@ itself.
 │   ├── otel-collector.yaml
 │   ├── prometheus.yaml
 │   └── grafana-dashboards/
-├── docker-compose.yml             # full dev stack (12 services incl. data stores)
+├── docker-compose.yml             # full dev stack (13 services incl. data stores)
 ├── docker-compose.tests.yml       # test/lint/proto runner services
 ├── Dockerfile.proto               # protobuf toolchain image
 ├── Dockerfile.test.python         # Python test image with dev deps
@@ -70,8 +77,8 @@ Exchange APIs (Binance, Coinbase)
                           ──► Mongo   (latest state)
         │
         ├── query-service (Python) ◄── gRPC ── api-gateway (Go) ◄── HTTP ── Client
-        │
-        └── command-service (Python) ◄── HTTP ── api-gateway (Go) ◄── HTTP ── Client
+        │                                              │
+        └── command-service (Python) ◄── HTTP ─────────┘
                  │
                  └──► Kafka (domain.events) ──► alert-service (Python)
                                                       │
@@ -83,7 +90,8 @@ Exchange APIs (Binance, Coinbase)
 ### Stack lifecycle
 | Command | Description |
 |---------|-------------|
-| `make up` | Start all services and dependencies |
+| `make up` | Start all services (backend + frontend via Docker) |
+| `make up-all` | Start backend Docker services + frontend dev server with hot-reload |
 | `make down` | Stop stack and remove volumes |
 | `make build` | Build all Docker images without starting |
 | `make restart svc=<name>` | Restart a single service |
@@ -110,6 +118,12 @@ Exchange APIs (Binance, Coinbase)
 |---------|-------------|
 | `make proto` | Regenerate Go and Python stubs from proto/ |
 
+### Frontend
+| Command | Description |
+|---------|-------------|
+| `make frontend` | Build the React frontend for production |
+| `make frontend-dev` | Start Vite dev server on the host |
+
 ### Testing
 | Command | Description |
 |---------|-------------|
@@ -128,9 +142,10 @@ Exchange APIs (Binance, Coinbase)
 ### Linting
 | Command | Description |
 |---------|-------------|
-| `make lint` | Run all Go + Python linters |
+| `make lint` | Run all Go + Python + frontend linters |
 | `make lint-go` | gofmt + go vet on all Go code |
 | `make lint-python` | ruff + mypy on all Python code |
+| `make lint-frontend` | TypeScript type check on frontend code |
 
 ## How tests work
 
@@ -155,6 +170,12 @@ happens once, then test containers start in ~0.1s.
 ```
 make build   # builds production images
 # Test images built automatically on first `make test-*`
+```
+
+### Frontend tests / lint
+The frontend TypeScript type check runs inside `node:22-alpine`:
+```
+make lint-frontend
 ```
 
 ## Code conventions

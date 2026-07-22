@@ -34,7 +34,28 @@ func NewClickHouseCandles(ctx context.Context, addr, database, user, password st
 	if err := conn.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("clickhouse ping: %w", err)
 	}
+	if err := ensureCandlesTable(ctx, conn); err != nil {
+		return nil, fmt.Errorf("ensure candles table: %w", err)
+	}
 	return &ClickHouseCandles{conn: conn}, nil
+}
+
+func ensureCandlesTable(ctx context.Context, conn driver.Conn) error {
+	return conn.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS candles (
+			tenant_id   String,
+			symbol      String,
+			interval    String,
+			open_time   Int64,
+			open        Float64,
+			high        Float64,
+			low         Float64,
+			close       Float64,
+			volume      Float64,
+			trade_count Int32
+		) ENGINE = ReplacingMergeTree()
+		ORDER BY (tenant_id, symbol, interval, open_time)
+	`)
 }
 
 // SaveCandles writes a batch of candles. The batch API keeps the write

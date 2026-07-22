@@ -49,14 +49,14 @@ services:
     volumes:
       - chdata:/var/lib/clickhouse
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
       interval: 5s
       timeout: 3s
       retries: 5
     logging: *default-logging
 
   mongo:
-    image: mongo:7
+    image: mongo:7.0
     environment:
       MONGO_INITDB_ROOT_USERNAME: cryptoscope
       MONGO_INITDB_ROOT_PASSWORD: cryptoscope
@@ -87,14 +87,14 @@ services:
   # Message broker
   # ---------------------------------------------------------------------------
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.6
+    image: confluentinc/cp-zookeeper:7.6.12
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     logging: *default-logging
 
   kafka:
-    image: confluentinc/cp-kafka:7.6
+    image: confluentinc/cp-kafka:7.6.12
     depends_on:
       zookeeper:
         condition: service_started
@@ -128,7 +128,7 @@ services:
     logging: *default-logging
 
   prometheus:
-    image: prom/prometheus:v2.52
+    image: prom/prometheus:v2.55.1
     command:
       - --config.file=/etc/prometheus/prometheus.yaml
       - --storage.tsdb.path=/prometheus
@@ -142,7 +142,7 @@ services:
     logging: *default-logging
 
   grafana:
-    image: grafana/grafana:10.4
+    image: grafana/grafana:11.6.16
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: cryptoscope
@@ -188,7 +188,7 @@ services:
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC_TICKS: market.ticks.raw
       KAFKA_CONSUMER_GROUP: cryptoscope
-      MONGO_URI: mongodb://cryptoscope:cryptoscope@mongo:27017
+      MONGO_URI: mongodb://cryptoscope:cryptoscope@mongo:27017/?authSource=admin
       MONGO_DB: cryptoscope
       CLICKHOUSE_ADDR: clickhouse:9000
       CLICKHOUSE_DB: cryptoscope
@@ -259,9 +259,11 @@ services:
       dockerfile: services/api-gateway/Dockerfile
     environment:
       LOG_LEVEL: debug
+      DEV_MODE: "true"
       API_GATEWAY_HTTP_PORT: "8080"
       QUERY_SERVICE_GRPC_ADDR: query-service:9001
       COMMAND_SERVICE_HTTP_ADDR: http://command-service:8002
+      ALERT_SERVICE_HTTP_ADDR: http://alert-service:8003
       REDIS_ADDR: redis:6379
       KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/cryptoscope/protocol/openid-connect/certs
       KEYCLOAK_ISSUER: http://keycloak:8080/realms/cryptoscope
@@ -278,8 +280,43 @@ services:
         condition: service_started
       command-service:
         condition: service_started
+      alert-service:
+        condition: service_started
       redis:
         condition: service_healthy
+    logging: *default-logging
+
+  alert-service:
+    build:
+      context: .
+      dockerfile: services/alert-service/Dockerfile
+    environment:
+      LOG_LEVEL: debug
+      POSTGRES_DSN: postgres://cryptoscope:cryptoscope@postgres:5432/cryptoscope?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC_EVENTS: domain.events
+      KAFKA_TOPIC_ALERTS: alerts.triggers
+      ALERT_SERVICE_HTTP_PORT: "8003"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: cryptoscope
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      api-gateway:
+        condition: service_started
     logging: *default-logging
 
 volumes:

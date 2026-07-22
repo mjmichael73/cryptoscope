@@ -100,6 +100,18 @@ services:
     volumes:
       - ./libs/python:/app
 
+  # ── Frontend ────────────────────────────────────────────────────────
+  lint-frontend:
+    image: node:22-alpine
+    working_dir: /app/frontend
+    entrypoint:
+      - sh
+      - -c
+      - |
+        npm ci && npm run lint
+    volumes:
+      - ./frontend:/app/frontend
+
   # ── Lint services ─────────────────────────────────────────────────────
   lint-go:
     image: golang:1.25-alpine

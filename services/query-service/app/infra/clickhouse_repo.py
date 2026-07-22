@@ -1,23 +1,78 @@
-"""ClickHouse backed read repository.
-
-Queries are always scoped by tenant_id and lead with the columns the candles
-table is ordered by, so ClickHouse can prune partitions and read a tight range.
-clickhouse-connect is synchronous, so the calls run in a thread to avoid
-blocking the event loop.
-"""
-
 from __future__ import annotations
 
 import asyncio
+import threading
+from dataclasses import dataclass
 
+import clickhouse_connect
 from clickhouse_connect.driver.client import Client
 
 from app.domain.models import Candle
 
 
-class ClickHouseReadRepository:
+@dataclass
+class CHConfig:
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str
+
+
+class _ClientSlot:
     def __init__(self, client: Client) -> None:
-        self._client = client
+        self.client = client
+        self.lock = threading.Lock()
+
+
+class ClickHousePool:
+    def __init__(self, config: CHConfig, size: int = 4) -> None:
+        self._slots = [
+            _ClientSlot(
+                clickhouse_connect.get_client(
+                    host=config.host,
+                    port=config.port,
+                    database=config.database,
+                    username=config.user,
+                    password=config.password,
+                )
+            )
+            for _ in range(size)
+        ]
+        self._sem = asyncio.Semaphore(size)
+        self._next = 0
+
+    async def query(self, q: str, params: dict[str, object]) -> list[tuple]:
+        async with self._sem:
+            slot = self._acquire()
+            try:
+                return await asyncio.to_thread(self._run, slot, q, params)
+            finally:
+                slot.lock.release()
+
+    def _acquire(self) -> _ClientSlot:
+        for _ in range(len(self._slots)):
+            slot = self._slots[self._next]
+            self._next = (self._next + 1) % len(self._slots)
+            if slot.lock.acquire(blocking=False):
+                return slot
+        slot = self._slots[self._next]
+        self._next = (self._next + 1) % len(self._slots)
+        slot.lock.acquire(blocking=True)
+        return slot
+
+    @staticmethod
+    def _run(slot: _ClientSlot, q: str, params: dict[str, object]) -> list[tuple]:
+        return slot.client.query(q, parameters=params).result_rows
+
+    def close(self) -> None:
+        for slot in self._slots:
+            slot.client.close()
+
+
+class ClickHouseReadRepository:
+    def __init__(self, pool: ClickHousePool) -> None:
+        self._pool = pool
 
     async def candles(
         self, tenant_id: str, symbol: str, interval: str, from_ms: int, to_ms: int
@@ -38,7 +93,7 @@ class ClickHouseReadRepository:
             "from_ms": from_ms,
             "to_ms": to_ms,
         }
-        rows = await asyncio.to_thread(self._run, query, params)
+        rows = await self._pool.query(query, params)
         return [
             Candle(
                 open_time_ms=int(row[0]),
@@ -58,8 +113,5 @@ class ClickHouseReadRepository:
             WHERE tenant_id = %(tenant_id)s
             ORDER BY symbol
         """
-        rows = await asyncio.to_thread(self._run, query, {"tenant_id": tenant_id})
+        rows = await self._pool.query(query, {"tenant_id": tenant_id})
         return [str(row[0]) for row in rows]
-
-    def _run(self, query: str, params: dict[str, object]) -> list[tuple]:
-        return self._client.query(query, parameters=params).result_rows

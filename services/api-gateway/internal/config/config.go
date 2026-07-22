@@ -8,11 +8,13 @@ import (
 
 type Config struct {
 	LogLevel string
+	DevMode  bool
 
 	HTTPPort     string
 	MetricsPort  string
 	GRPCAddr     string
 	CommandHTTP  string
+	AlertHTTP    string
 
 	RedisAddr     string
 	RedisPassword string
@@ -37,10 +39,13 @@ func Load() Config {
 		MetricsPort: ":" + shared.Getenv("PROMETHEUS_METRICS_PORT", "9101"),
 		GRPCAddr:    shared.Getenv("QUERY_SERVICE_GRPC_ADDR", "localhost:9001"),
 		CommandHTTP: shared.Getenv("COMMAND_SERVICE_HTTP_ADDR", "http://localhost:8002"),
+		AlertHTTP:   shared.Getenv("ALERT_SERVICE_HTTP_ADDR", "http://localhost:8003"),
 
 		RedisAddr:     shared.Getenv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword: shared.Getenv("REDIS_PASSWORD", ""),
 		RedisDB:       shared.GetenvInt("REDIS_DB", 0),
+
+		DevMode:  shared.Getenv("DEV_MODE", "false") == "true",
 
 		JWKSURL:  shared.Getenv("KEYCLOAK_JWKS_URL", "http://localhost:8080/realms/cryptoscope/protocol/openid-connect/certs"),
 		Issuer:   shared.Getenv("KEYCLOAK_ISSUER", "http://localhost:8080/realms/cryptoscope"),

@@ -25,8 +25,20 @@ help: ## Show this help
 # ── Full stack lifecycle ───────────────────────────────────────────────
 
 .PHONY: up
-up: ## Start all services and their dependencies
+up: ## Start all services (backend + frontend via Docker)
 	$(COMPOSE) up -d --build
+
+.PHONY: up-all
+up-all: ## Start backend services + frontend dev server with hot-reload
+	$(COMPOSE) up -d --build postgres clickhouse mongo redis zookeeper kafka \
+		otel-collector prometheus grafana \
+		ingest-service stream-processor command-service query-service api-gateway alert-service
+	@echo ""
+	@echo "==> Backend services started. Starting frontend dev server..."
+	@echo "    Frontend will be at http://localhost:5173"
+	@echo "    (hot-reload enabled; proxies /api -> api-gateway:8080)"
+	@echo ""
+	cd frontend && npm run dev
 
 .PHONY: down
 down: ## Stop the stack and remove volumes
@@ -95,6 +107,17 @@ proto: ## Regenerate protobuf stubs for Go and Python
 	$(COMPOSE_TEST) run --rm proto
 
 
+# ── Frontend ─────────────────────────────────────────────────────────
+
+.PHONY: frontend
+frontend: ## Build the React frontend for production
+	cd frontend && npm ci && npm run build
+
+.PHONY: frontend-dev
+frontend-dev: ## Start Vite dev server on the host (requires backend running)
+	cd frontend && npm run dev
+
+
 # ── Tests ──────────────────────────────────────────────────────────────
 
 .PHONY: test
@@ -125,7 +148,7 @@ test-python: ## Run all Python unit tests
 # ── Linting ────────────────────────────────────────────────────────────
 
 .PHONY: lint
-lint: lint-go lint-python ## Run all linters
+lint: lint-go lint-python lint-frontend ## Run all linters
 
 .PHONY: lint-go
 lint-go: ## Lint all Go code
@@ -134,6 +157,10 @@ lint-go: ## Lint all Go code
 .PHONY: lint-python
 lint-python: ## Lint and type check all Python code
 	$(COMPOSE_TEST) run --rm lint-python
+
+.PHONY: lint-frontend
+lint-frontend: ## Type check the frontend code
+	$(COMPOSE_TEST) run --rm lint-frontend
 
 
 # ─── One-off test targets (run a single service's tests) ───────────────

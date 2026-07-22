@@ -7,6 +7,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mojimich2015/cryptoscope/libs/go/ratelimit"
@@ -17,11 +18,12 @@ import (
 type Gateway struct {
 	query   *client.QueryClient
 	command *httputil.ReverseProxy
+	alert   *httputil.ReverseProxy
 	logger  *slog.Logger
 	mux     *chi.Mux
 }
 
-func New(query *client.QueryClient, commandURL string, logger *slog.Logger, limiter *ratelimit.Limiter, keystore *auth.CachingKeyStore) *Gateway {
+func New(query *client.QueryClient, commandURL, alertURL string, logger *slog.Logger, limiter *ratelimit.Limiter, keystore *auth.CachingKeyStore, devMode bool) *Gateway {
 	g := &Gateway{
 		query:  query,
 		logger: logger,
@@ -35,6 +37,14 @@ func New(query *client.QueryClient, commandURL string, logger *slog.Logger, limi
 		g.command = httputil.NewSingleHostReverseProxy(target)
 	}
 
+	alertTarget, err := url.Parse(alertURL)
+	if err != nil {
+		logger.Error("invalid alert service URL", "error", err)
+		g.alert = &httputil.ReverseProxy{}
+	} else {
+		g.alert = httputil.NewSingleHostReverseProxy(alertTarget)
+	}
+
 	g.mux = chi.NewRouter()
 
 	g.mux.Use(RecoveryMiddleware(logger))
@@ -43,13 +53,29 @@ func New(query *client.QueryClient, commandURL string, logger *slog.Logger, limi
 	g.mux.Use(TenantForwardingMiddleware)
 
 	g.mux.Get("/healthz", g.healthz)
+	g.mux.Get("/healthz/alert-service", g.proxyToAlertHealth)
+	g.mux.Get("/healthz/command-service", g.proxyToCommandHealth)
 
-	g.mux.With(auth.AuthMiddleware(keystore), RateLimitMiddleware(limiter, logger)).Get("/v1/candles", g.getCandles)
-	g.mux.With(auth.AuthMiddleware(keystore), RateLimitMiddleware(limiter, logger)).Get("/v1/indicators", g.getIndicator)
-	g.mux.With(auth.AuthMiddleware(keystore), RateLimitMiddleware(limiter, logger)).Get("/v1/symbols", g.listSymbols)
+	authMW := auth.AuthMiddleware(keystore)
+	if devMode {
+		authMW = func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				next.ServeHTTP(w, r)
+			})
+		}
+		logger.Warn("running in dev mode, auth is DISABLED")
+	}
 
-	g.mux.With(auth.AuthMiddleware(keystore), RateLimitMiddleware(limiter, logger)).Post("/v1/watchlists", g.proxyToCommand)
-	g.mux.With(auth.AuthMiddleware(keystore), RateLimitMiddleware(limiter, logger)).Post("/v1/alert-rules", g.proxyToCommand)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/candles", g.getCandles)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/indicators", g.getIndicator)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/symbols", g.listSymbols)
+
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Post("/v1/watchlists", g.proxyToCommand)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Post("/v1/alert-rules", g.proxyToCommand)
+
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/alert-rules", g.proxyToAlert)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/alert-rules/*", g.proxyToAlert)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/triggers", g.proxyToAlert)
 
 	return g
 }
@@ -78,6 +104,12 @@ func (g *Gateway) getCandles(w http.ResponseWriter, r *http.Request) {
 	if interval == "" {
 		interval = "1m"
 	}
+	if fromMs == 0 {
+		fromMs = time.Now().Add(-24 * time.Hour).UnixMilli()
+	}
+	if toMs == 0 {
+		toMs = time.Now().UnixMilli()
+	}
 
 	candles, err := g.query.GetCandles(r.Context(), tenantID, symbol, interval, fromMs, toMs)
 	if err != nil {
@@ -86,7 +118,7 @@ func (g *Gateway) getCandles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"candles": candles})
+	writeJSON(w, http.StatusOK, map[string]any{"candles": nonil(candles)})
 }
 
 func (g *Gateway) getIndicator(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +147,7 @@ func (g *Gateway) getIndicator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"points": points})
+	writeJSON(w, http.StatusOK, map[string]any{"points": nonil(points)})
 }
 
 func (g *Gateway) listSymbols(w http.ResponseWriter, r *http.Request) {
@@ -128,11 +160,32 @@ func (g *Gateway) listSymbols(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"symbols": symbols})
+	writeJSON(w, http.StatusOK, map[string]any{"symbols": nonil(symbols)})
 }
 
 func (g *Gateway) proxyToCommand(w http.ResponseWriter, r *http.Request) {
 	g.command.ServeHTTP(w, r)
+}
+
+func (g *Gateway) proxyToAlert(w http.ResponseWriter, r *http.Request) {
+	g.alert.ServeHTTP(w, r)
+}
+
+func (g *Gateway) proxyToCommandHealth(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/healthz"
+	g.command.ServeHTTP(w, r)
+}
+
+func (g *Gateway) proxyToAlertHealth(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/healthz"
+	g.alert.ServeHTTP(w, r)
+}
+
+func nonil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
