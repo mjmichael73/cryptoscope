@@ -10,6 +10,7 @@ type Config struct {
 	KafkaBrokers  []string
 	TicksTopic    string
 	ConsumerGroup string
+	EventsTopic   string
 
 	MongoURI string
 	MongoDB  string
@@ -35,6 +36,7 @@ func Load() Config {
 		KafkaBrokers:  shared.GetenvList("KAFKA_BROKERS", []string{"localhost:9092"}),
 		TicksTopic:    shared.Getenv("KAFKA_TOPIC_TICKS", "market.ticks.raw"),
 		ConsumerGroup: shared.Getenv("KAFKA_CONSUMER_GROUP", "cryptoscope") + "-processor",
+		EventsTopic:   shared.Getenv("KAFKA_TOPIC_EVENTS", "domain.events"),
 
 		MongoURI: shared.Getenv("MONGO_URI", "mongodb://localhost:27017"),
 		MongoDB:  shared.Getenv("MONGO_DB", "cryptoscope"),

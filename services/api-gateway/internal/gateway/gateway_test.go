@@ -259,5 +259,5 @@ func TestNewRedisClient(t *testing.T) {
 func newTestGateway() *Gateway {
 	var buf strings.Builder
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	return New(nil, "http://localhost:18002", logger, nil, nil)
+	return New(nil, "http://localhost:18002", "http://localhost:18003", logger, nil, nil, true)
 }

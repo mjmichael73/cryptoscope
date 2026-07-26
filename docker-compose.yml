@@ -265,9 +265,9 @@ services:
       COMMAND_SERVICE_HTTP_ADDR: http://command-service:8002
       ALERT_SERVICE_HTTP_ADDR: http://alert-service:8003
       REDIS_ADDR: redis:6379
-      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/cryptoscope/protocol/openid-connect/certs
-      KEYCLOAK_ISSUER: http://keycloak:8080/realms/cryptoscope
-      KEYCLOAK_AUDIENCE: cryptoscope-api
+      # KEYCLOAK_* env vars are intentionally omitted in dev mode.
+      # DEV_MODE=true bypasses auth. For production set KEYCLOAK_JWKS_URL,
+      # KEYCLOAK_ISSUER, KEYCLOAK_AUDIENCE and deploy a Keycloak instance.
       RATE_LIMIT_REQUESTS_PER_MINUTE: "120"
       RATE_LIMIT_BURST: "40"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317

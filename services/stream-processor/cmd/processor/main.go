@@ -65,7 +65,10 @@ func main() {
 	}
 
 	aggregator := aggregate.New(cfg.Intervals)
-	proc := etl.New(aggregator, archive, candles, cfg.TenantID, logger)
+	producer := kafka.NewProducer(cfg.KafkaBrokers, cfg.EventsTopic)
+	defer producer.Close()
+
+	proc := etl.New(aggregator, archive, candles, producer, cfg.EventsTopic, cfg.TenantID, logger)
 
 	consumer := kafka.NewConsumer(cfg.KafkaBrokers, cfg.TicksTopic, cfg.ConsumerGroup)
 	defer consumer.Close()

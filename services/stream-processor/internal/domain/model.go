@@ -24,3 +24,14 @@ type Candle struct {
 	Volume     float64 `json:"volume"`
 	TradeCount int64   `json:"trade_count"`
 }
+
+// CandleUpdatedEvent is the domain event published to Kafka when a candle
+// closes. The wire format must match cryptoscope_shared.events.DomainEvent
+// so the Python alert-service can deserialize it.
+type CandleUpdatedEvent struct {
+	EventType   string  `json:"event_type"`
+	AggregateID string  `json:"aggregate_id"`
+	TenantID    string  `json:"tenant_id"`
+	Data        Candle  `json:"data"`
+	Timestamp   int64   `json:"timestamp"`
+}

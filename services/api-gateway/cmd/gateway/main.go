@@ -54,8 +54,10 @@ func main() {
 	limiter := ratelimit.New(redisClient, cfg.RateLimitPerMinute, cfg.RateLimitBurst)
 
 	keystore := auth.NewKeyStore(cfg.JWKSURL, cfg.Issuer, cfg.Audience)
-	if err := keystore.Refresh(ctx); err != nil {
-		logger.Warn("initial JWKS refresh failed, continuing without auth keys", "error", err)
+	if !cfg.DevMode {
+		if err := keystore.Refresh(ctx); err != nil {
+			logger.Warn("initial JWKS refresh failed, continuing without auth keys", "error", err)
+		}
 	}
 
 	queryClient, err := client.NewQueryClient(cfg.GRPCAddr)

@@ -22,12 +22,12 @@ func TestLoadFromEnv(t *testing.T) {
 	os.Setenv("LOG_LEVEL", "debug")
 	os.Setenv("KAFKA_BROKERS", "broker1:9092,broker2:9092")
 	os.Setenv("PROCESSOR_INTERVALS", "1m,5m,1h,15m")
-	os.Setenv("PLATFORM_TENANT_ID", "test-tenant")
+	os.Setenv("TENANT_ID", "test-tenant")
 	defer func() {
 		os.Unsetenv("LOG_LEVEL")
 		os.Unsetenv("KAFKA_BROKERS")
 		os.Unsetenv("PROCESSOR_INTERVALS")
-		os.Unsetenv("PLATFORM_TENANT_ID")
+		os.Unsetenv("TENANT_ID")
 	}()
 
 	cfg := Load()

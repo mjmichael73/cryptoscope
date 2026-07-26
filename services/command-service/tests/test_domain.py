@@ -43,37 +43,37 @@ def test_conflict_error_is_runtime_error() -> None:
 
 def test_domain_event_creation() -> None:
     event = DomainEvent(
-        name="watchlist.created",
+        event_type="watchlist_created",
         tenant_id="tenant-1",
-        payload={"id": "wl-1"},
+        data={"id": "wl-1"},
     )
-    assert event.name == "watchlist.created"
+    assert event.event_type == "watchlist_created"
     assert event.tenant_id == "tenant-1"
-    assert event.payload["id"] == "wl-1"
-    assert event.occurred_at is not None
+    assert event.data["id"] == "wl-1"
+    assert event.timestamp > 0
 
 
 def test_domain_event_to_message() -> None:
     event = DomainEvent(
-        name="watchlist.created",
+        event_type="watchlist_created",
         tenant_id="tenant-1",
-        payload={"id": "wl-1", "symbols": []},
+        data={"id": "wl-1", "symbols": []},
     )
     msg = event.to_message()
-    assert msg["name"] == "watchlist.created"
+    assert msg["event_type"] == "watchlist_created"
     assert msg["tenant_id"] == "tenant-1"
-    assert msg["payload"]["id"] == "wl-1"
+    assert msg["data"]["id"] == "wl-1"
 
 
 def test_watchlist_created_factory() -> None:
     event = watchlist_created("tenant-1", "wl-1", "Majors", ["BTCUSDT"])
-    assert event.name == "watchlist.created"
-    assert event.payload["symbols"] == ["BTCUSDT"]
-    assert event.payload["name"] == "Majors"
+    assert event.event_type == "watchlist_created"
+    assert event.data["symbols"] == ["BTCUSDT"]
+    assert event.data["name"] == "Majors"
 
 
 def test_alert_rule_created_factory() -> None:
     event = alert_rule_created("tenant-1", "rule-1", "BTCUSDT", "above", 50000.0)
-    assert event.name == "alert_rule.created"
-    assert event.payload["symbol"] == "BTCUSDT"
-    assert event.payload["threshold"] == 50000.0
+    assert event.event_type == "alert_rule_created"
+    assert event.data["symbol"] == "BTCUSDT"
+    assert event.data["threshold"] == 50000.0

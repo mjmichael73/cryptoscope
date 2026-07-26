@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from cryptoscope_shared.events import DomainEvent
 from app.domain.models import AlertRule, AlertRuleStatus, Comparator
 from app.infra.consumer import AlertEngine
 
@@ -196,25 +198,210 @@ class FakeResult:
     def scalars(self) -> FakeResult:
         return self
 
-    def all(self) -> list[dict[str, Any]]:
-        return self._rules
+    def all(self) -> list[SimpleNamespace]:
+        return [SimpleNamespace(**r) for r in self._rules]
 
-    def scalar_one_or_none(self) -> dict[str, Any] | None:
-        return self._rules[0] if self._rules else None
+    def scalar_one_or_none(self) -> SimpleNamespace | None:
+        if not self._rules:
+            return None
+        return SimpleNamespace(**self._rules[0])
 
 
 class FakeLogger:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, Any]] = []
+
     def info(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        self.messages.append({"level": "info", "args": args, "kwargs": kwargs})
 
     def debug(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        self.messages.append({"level": "debug", "args": args, "kwargs": kwargs})
 
     def warning(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        self.messages.append({"level": "warning", "args": args, "kwargs": kwargs})
 
     def error(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        self.messages.append({"level": "error", "args": args, "kwargs": kwargs})
 
     def exception(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        self.messages.append({"level": "exception", "args": args, "kwargs": kwargs})
+
+
+@pytest.mark.asyncio
+async def test_process_recognizes_watchlist_created_event() -> None:
+    """A watchlist_created event produced by command-service using the shared
+    schema should be accepted (not dropped as unknown)."""
+    producer = FakeProducer()
+    logger = FakeLogger()
+    engine = AlertEngine(
+        consumer=FakeConsumer([]),
+        producer=producer,
+        alerts_topic="alerts.triggers",
+        session_factory=FakeSessionFactory([]),
+        logger=logger,
+    )
+
+    payload = DomainEvent(
+        event_type="watchlist_created",
+        aggregate_id="wl-1",
+        tenant_id="tenant-1",
+        data={"id": "wl-1", "name": "Majors", "symbols": ["BTCUSDT"]},
+    ).to_message()
+
+    await engine._process(payload)
+
+    assert any(
+        m["level"] == "info" and "watchlist_created" in str(m["kwargs"])
+        for m in logger.messages
+    ), "expected info log for watchlist_created"
+
+
+@pytest.mark.asyncio
+async def test_process_recognizes_alert_rule_created_event() -> None:
+    """An alert_rule_created event should be recognized and logged."""
+    producer = FakeProducer()
+    logger = FakeLogger()
+    engine = AlertEngine(
+        consumer=FakeConsumer([]),
+        producer=producer,
+        alerts_topic="alerts.triggers",
+        session_factory=FakeSessionFactory([]),
+        logger=logger,
+    )
+
+    payload = DomainEvent(
+        event_type="alert_rule_created",
+        aggregate_id="rule-1",
+        tenant_id="tenant-1",
+        data={"id": "rule-1", "symbol": "BTCUSDT", "comparator": "gt", "threshold": 50000.0},
+    ).to_message()
+
+    await engine._process(payload)
+
+    assert any(
+        m["level"] == "info" and "alert_rule_created" in str(m["kwargs"])
+        for m in logger.messages
+    ), "expected info log for alert_rule_created"
+
+
+@pytest.mark.asyncio
+async def test_process_ignores_unknown_event_type() -> None:
+    """Unknown event types should be logged at debug level and ignored."""
+    producer = FakeProducer()
+    logger = FakeLogger()
+    engine = AlertEngine(
+        consumer=FakeConsumer([]),
+        producer=producer,
+        alerts_topic="alerts.triggers",
+        session_factory=FakeSessionFactory([]),
+        logger=logger,
+    )
+
+    payload = DomainEvent(
+        event_type="unknown.event",
+        aggregate_id="",
+        tenant_id="tenant-1",
+        data={},
+    ).to_message()
+
+    await engine._process(payload)
+
+    assert any(
+        m["level"] == "debug" and "unknown" in str(m["kwargs"]).lower()
+        for m in logger.messages
+    ), "expected debug log for unknown event type"
+
+
+@pytest.mark.asyncio
+async def test_candle_updated_triggers_evaluation_with_matching_rules() -> None:
+    """A candle_updated event with a matching active rule should fire a trigger."""
+    producer = FakeProducer()
+    rules = [
+        {
+            "id": "rule-1",
+            "tenant_id": "tenant-1",
+            "symbol": "BTCUSDT",
+            "comparator": "gt",
+            "threshold": 50000.0,
+            "status": "active",
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+    ]
+    engine = AlertEngine(
+        consumer=FakeConsumer([]),
+        producer=producer,
+        alerts_topic="alerts.triggers",
+        session_factory=FakeSessionFactory(rules),
+        logger=FakeLogger(),
+    )
+
+    payload = DomainEvent(
+        event_type="candle_updated",
+        aggregate_id="BTCUSDT:1m:1710000000000",
+        tenant_id="tenant-1",
+        data={
+            "symbol": "BTCUSDT",
+            "interval": "1m",
+            "open": 49000.0,
+            "high": 51000.0,
+            "low": 49000.0,
+            "close": 51000.0,
+            "volume": 100.0,
+            "timestamp": 1710000000000,
+        },
+    ).to_message()
+
+    await engine._process(payload)
+
+    assert len(producer.published) == 1
+    topic, key, data = producer.published[0]
+    assert topic == "alerts.triggers"
+    assert key == "BTCUSDT"
+    assert data["threshold"] == 50000.0
+    assert data["current_value"] == 51000.0
+
+
+@pytest.mark.asyncio
+async def test_candle_updated_no_fire_when_rule_does_not_match() -> None:
+    """A candle_updated event that does not satisfy the threshold should not fire."""
+    producer = FakeProducer()
+    rules = [
+        {
+            "id": "rule-1",
+            "tenant_id": "tenant-1",
+            "symbol": "BTCUSDT",
+            "comparator": "gt",
+            "threshold": 60000.0,
+            "status": "active",
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+    ]
+    engine = AlertEngine(
+        consumer=FakeConsumer([]),
+        producer=producer,
+        alerts_topic="alerts.triggers",
+        session_factory=FakeSessionFactory(rules),
+        logger=FakeLogger(),
+    )
+
+    payload = DomainEvent(
+        event_type="candle_updated",
+        aggregate_id="BTCUSDT:1m:1710000000000",
+        tenant_id="tenant-1",
+        data={
+            "symbol": "BTCUSDT",
+            "interval": "1m",
+            "open": 49000.0,
+            "high": 51000.0,
+            "low": 49000.0,
+            "close": 51000.0,
+            "volume": 100.0,
+            "timestamp": 1710000000000,
+        },
+    ).to_message()
+
+    await engine._process(payload)
+
+    assert len(producer.published) == 0, "should not fire when threshold not met"

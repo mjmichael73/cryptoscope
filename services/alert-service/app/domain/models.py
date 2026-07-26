@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any
+
+from cryptoscope_shared.events import DomainEvent  # noqa: F401 — re-exported for test imports
 
 
 class Comparator(str, Enum):
@@ -43,15 +44,6 @@ class AlertTrigger:
     current_value: float
     triggered_at: datetime
     acknowledged: bool
-
-
-@dataclass
-class DomainEvent:
-    event_type: str
-    aggregate_id: str
-    tenant_id: str
-    data: dict[str, Any]
-    timestamp: int
 
 
 @dataclass

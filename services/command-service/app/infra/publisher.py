@@ -18,5 +18,5 @@ class KafkaEventPublisher:
         self._topic = topic
 
     async def publish(self, event: events.DomainEvent) -> None:
-        key = f"{event.tenant_id}:{event.name}"
+        key = f"{event.tenant_id}:{event.event_type}"
         await self._producer.publish(self._topic, key, event.to_message())

@@ -4,12 +4,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from cryptoscope_shared.events import CANDLE_UPDATED, DomainEvent
 from cryptoscope_shared.kafka import JsonConsumer, JsonProducer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.domain.errors import EvaluationError
-from app.domain.models import AlertRule, AlertRuleStatus, AlertTrigger, Comparator, DomainEvent
+from app.domain.models import AlertRule, AlertRuleStatus, Comparator
 from app.infra.db import AlertRuleModel, AlertTriggerModel
 
 
@@ -45,7 +45,7 @@ class AlertEngine:
             timestamp=payload.get("timestamp", 0),
         )
 
-        if event.event_type == "candle_updated":
+        if event.event_type == CANDLE_UPDATED:
             await self._evaluate_candle_event(event)
         elif event.event_type in ("watchlist_created", "alert_rule_created"):
             self._logger.info(

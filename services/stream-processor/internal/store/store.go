@@ -22,3 +22,8 @@ type CandleStore interface {
 	// converges rather than duplicating rows.
 	SaveCandles(ctx context.Context, tenantID string, candles []domain.Candle) error
 }
+
+// EventPublisher emits domain events for downstream consumers (alert-service).
+type EventPublisher interface {
+	Publish(ctx context.Context, key string, value any) error
+}

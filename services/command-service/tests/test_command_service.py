@@ -25,8 +25,8 @@ async def test_create_watchlist_persists_and_emits_event(repo, publisher):
     assert repo.watchlists[watchlist_id].symbols == ["BTCUSDT", "ETHUSDT"]
     assert len(publisher.published) == 1
     event = publisher.published[0]
-    assert event.name == "watchlist.created"
-    assert event.payload["symbols"] == ["BTCUSDT", "ETHUSDT"]
+    assert event.event_type == "watchlist_created"
+    assert event.data["symbols"] == ["BTCUSDT", "ETHUSDT"]
 
 
 async def test_create_watchlist_rejects_blank_name(repo, publisher):
@@ -88,5 +88,5 @@ async def test_create_alert_rule_persists_and_emits_event(repo, publisher):
 
     assert rule_id in repo.alert_rules
     assert repo.alert_rules[rule_id].symbol == "BTCUSDT"
-    assert publisher.published[0].name == "alert_rule.created"
-    assert publisher.published[0].payload["symbol"] == "BTCUSDT"
+    assert publisher.published[0].event_type == "alert_rule_created"
+    assert publisher.published[0].data["symbol"] == "BTCUSDT"

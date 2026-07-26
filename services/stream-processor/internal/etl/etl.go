@@ -3,11 +3,16 @@
 // The flow is deliberately simple: read a tick, archive it, fold it into the
 // aggregator, and persist any candles the tick closed. Offsets are committed
 // only after the work is durable, which keeps processing at-least-once.
+//
+// When a candle closes the processor also publishes a candle_updated domain
+// event so downstream services (alert-service) can evaluate rules against the
+// new bar.
 package etl
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/mojimich2015/cryptoscope/services/stream-processor/internal/aggregate"
@@ -15,25 +20,31 @@ import (
 	"github.com/mojimich2015/cryptoscope/services/stream-processor/internal/store"
 )
 
+const eventTypeCandleUpdated = "candle_updated"
+
 // Processor folds ticks into candles and persists both sides.
 type Processor struct {
-	aggregator *aggregate.Aggregator
-	archive    store.RawArchive
-	candles    store.CandleStore
-	tenantID   string
-	logger     *slog.Logger
+	aggregator  *aggregate.Aggregator
+	archive     store.RawArchive
+	candles     store.CandleStore
+	publisher   store.EventPublisher
+	eventsTopic string
+	tenantID    string
+	logger      *slog.Logger
 }
 
 // New builds a Processor. The tenant id is passed in because, in this
 // single-tenant ingestion path, every tick belongs to the platform tenant;
 // per-tenant routing lives at the gateway.
-func New(agg *aggregate.Aggregator, archive store.RawArchive, candles store.CandleStore, tenantID string, logger *slog.Logger) *Processor {
+func New(agg *aggregate.Aggregator, archive store.RawArchive, candles store.CandleStore, publisher store.EventPublisher, eventsTopic string, tenantID string, logger *slog.Logger) *Processor {
 	return &Processor{
-		aggregator: agg,
-		archive:    archive,
-		candles:    candles,
-		tenantID:   tenantID,
-		logger:     logger,
+		aggregator:  agg,
+		archive:     archive,
+		candles:     candles,
+		publisher:   publisher,
+		eventsTopic: eventsTopic,
+		tenantID:    tenantID,
+		logger:      logger,
 	}
 }
 
@@ -42,8 +53,6 @@ func New(agg *aggregate.Aggregator, archive store.RawArchive, candles store.Cand
 func (p *Processor) Handle(ctx context.Context, payload []byte) error {
 	var tick domain.Tick
 	if err := json.Unmarshal(payload, &tick); err != nil {
-		// A malformed message will never succeed on retry, so we log and drop
-		// it rather than blocking the partition.
 		p.logger.Warn("dropping malformed tick", slog.String("error", err.Error()))
 		return nil
 	}
@@ -56,7 +65,12 @@ func (p *Processor) Handle(ctx context.Context, payload []byte) error {
 	if len(closed) == 0 {
 		return nil
 	}
-	return p.candles.SaveCandles(ctx, p.tenantID, closed)
+
+	if err := p.candles.SaveCandles(ctx, p.tenantID, closed); err != nil {
+		return err
+	}
+
+	return p.publishEvents(ctx, closed)
 }
 
 // Flush persists any open candles. Call it on shutdown.
@@ -66,4 +80,20 @@ func (p *Processor) Flush(ctx context.Context) error {
 		return nil
 	}
 	return p.candles.SaveCandles(ctx, p.tenantID, closed)
+}
+
+func (p *Processor) publishEvents(ctx context.Context, candles []domain.Candle) error {
+	for _, c := range candles {
+		event := domain.CandleUpdatedEvent{
+			EventType:   eventTypeCandleUpdated,
+			AggregateID: fmt.Sprintf("%s:%s:%d", c.Symbol, c.Interval, c.OpenTimeMs),
+			TenantID:    p.tenantID,
+			Data:        c,
+			Timestamp:   c.OpenTimeMs + aggregate.IntervalMs[c.Interval],
+		}
+		if err := p.publisher.Publish(ctx, c.Symbol, event); err != nil {
+			return err
+		}
+	}
+	return nil
 }
