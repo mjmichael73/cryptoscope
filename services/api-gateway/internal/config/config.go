@@ -76,7 +76,8 @@ func Load() Config {
 // JWT verification impossible. Development mode is only permitted outside
 // explicitly production environments.
 func (c Config) Validate(environment string) error {
-	if strings.EqualFold(strings.TrimSpace(environment), "production") {
+	production := strings.EqualFold(strings.TrimSpace(environment), "production")
+	if production {
 		if !c.RedisPasswordFile || strings.TrimSpace(c.RedisPassword) == "" {
 			return fmt.Errorf("REDIS_PASSWORD_FILE is required in production")
 		}
@@ -84,8 +85,13 @@ func (c Config) Validate(environment string) error {
 			return fmt.Errorf("REDIS_TLS_ENABLED must be true in production")
 		}
 	}
-	if strings.EqualFold(strings.TrimSpace(environment), "production") && c.DevMode {
+	if production && c.DevMode {
 		return fmt.Errorf("DEV_MODE must be disabled in production")
+	}
+	if production {
+		if err := validateProductionCORSOrigins(c.CORSAllowedOrigins); err != nil {
+			return err
+		}
 	}
 	if c.DevMode {
 		return nil
@@ -107,6 +113,22 @@ func (c Config) Validate(environment string) error {
 	issuer, err := url.ParseRequestURI(c.Issuer)
 	if err != nil || issuer.Host == "" || (issuer.Scheme != "https" && issuer.Scheme != "http") {
 		return fmt.Errorf("KEYCLOAK_ISSUER must be an absolute HTTP(S) URL")
+	}
+	return nil
+}
+
+func validateProductionCORSOrigins(origins []string) error {
+	if len(origins) == 0 {
+		return fmt.Errorf("CORS_ALLOWED_ORIGINS must contain at least one HTTPS origin in production")
+	}
+	for _, origin := range origins {
+		if origin == "*" || strings.Contains(origin, "*") {
+			return fmt.Errorf("CORS_ALLOWED_ORIGINS must not contain wildcard origins")
+		}
+		u, err := url.Parse(origin)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("CORS_ALLOWED_ORIGINS entry %q must be an HTTPS origin without path, credentials, query, or fragment", origin)
+		}
 	}
 	return nil
 }

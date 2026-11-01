@@ -57,16 +57,14 @@ func TestValidateRejectsInvalidJWKSURL(t *testing.T) {
 
 func TestValidateRedisProductionRequirements(t *testing.T) {
 	cfg := Config{
-		RedisPassword:     "secret",
-		RedisPasswordFile: true,
-		JWKSURL:           "https://keycloak.example/keys",
-		Issuer:            "https://keycloak.example/realm",
-		Audience:          "cryptoscope",
+		RedisPassword:      "secret",
+		RedisPasswordFile:  true,
+		RedisTLS:           true,
+		JWKSURL:            "https://keycloak.example/keys",
+		Issuer:             "https://keycloak.example/realm",
+		Audience:           "cryptoscope",
+		CORSAllowedOrigins: []string{"https://app.example.com"},
 	}
-	if err := cfg.Validate("production"); err == nil {
-		t.Fatal("expected production Redis TLS to be required")
-	}
-	cfg.RedisTLS = true
 	cfg.RedisPasswordFile = false
 	if err := cfg.Validate("production"); err == nil {
 		t.Fatal("expected production Redis password to come from a secret file")
@@ -74,6 +72,42 @@ func TestValidateRedisProductionRequirements(t *testing.T) {
 	cfg.RedisPasswordFile = true
 	if err := cfg.Validate("production"); err != nil {
 		t.Fatalf("expected secure Redis config to validate, got %v", err)
+	}
+}
+
+func TestValidateProductionCORSOrigins(t *testing.T) {
+	base := Config{
+		RedisPassword:     "secret",
+		RedisPasswordFile: true,
+		RedisTLS:          true,
+		JWKSURL:           "https://keycloak.example/keys",
+		Issuer:            "https://keycloak.example/realm",
+		Audience:          "cryptoscope",
+	}
+	tests := []struct {
+		name    string
+		origins []string
+		wantErr bool
+	}{
+		{name: "empty allowlist", wantErr: true},
+		{name: "valid explicit origins", origins: []string{"https://app.example.com", "https://admin.example.com:8443"}},
+		{name: "wildcard", origins: []string{"*"}, wantErr: true},
+		{name: "wildcard subdomain", origins: []string{"https://*.example.com"}, wantErr: true},
+		{name: "http origin", origins: []string{"http://app.example.com"}, wantErr: true},
+		{name: "trailing slash", origins: []string{"https://app.example.com/"}, wantErr: true},
+		{name: "path", origins: []string{"https://app.example.com/dashboard"}, wantErr: true},
+		{name: "credentials", origins: []string{"https://user@app.example.com"}, wantErr: true},
+		{name: "query", origins: []string{"https://app.example.com?x=1"}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := base
+			cfg.CORSAllowedOrigins = tc.origins
+			err := cfg.Validate("production")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Validate(production) error = %v, wantErr %t", err, tc.wantErr)
+			}
+		})
 	}
 }
 

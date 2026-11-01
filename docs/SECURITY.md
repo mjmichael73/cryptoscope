@@ -78,7 +78,7 @@ Keep dependencies updated regularly. The `Makefile` lint targets catch many issu
 
 - **Local dev**: All services communicate over Docker's internal network (no TLS).
 - **Production**: Add a service mesh (e.g., Istio, Linkerd) for mTLS between services, or configure TLS at each hop.
-- **CORS**: The `api-gateway` should restrict origins in production. Currently uses defaults.
+- **CORS**: In production, `api-gateway` requires `CORS_ALLOWED_ORIGINS` to list one or more explicit HTTPS origins (comma-separated, such as `https://app.example.com`). Wildcards, HTTP origins, credentials, paths, queries, and fragments are rejected at startup. The gateway returns CORS headers only for listed origins; local development may leave the list empty.
 
 ## Logging and audit
 

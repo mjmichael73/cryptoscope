@@ -64,9 +64,15 @@ ALERT_SERVICE_HTTP_ADDR=http://alert-service:8003
 REDIS_ADDR=redis-cluster:6379
 REDIS_PASSWORD_FILE=/run/secrets/redis_password
 REDIS_TLS_ENABLED=true
+CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
 RATE_LIMIT_REQUESTS_PER_MINUTE=120
 RATE_LIMIT_BURST=40
 ```
+
+Set `CORS_ALLOWED_ORIGINS` on the gateway to the exact HTTPS origins of the
+browser clients. Separate origins with commas and omit URL paths (for example,
+`https://app.example.com,https://admin.example.com`). The gateway rejects
+missing, wildcard, HTTP, or malformed origins during production startup.
 
 ### ingest-service
 

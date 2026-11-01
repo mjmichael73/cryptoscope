@@ -95,6 +95,7 @@ All configuration is done via environment variables. See `.env.example` for the 
 | `KEYCLOAK_JWKS_URL`         | api-gateway      | Required outside dev mode; signing key endpoint |
 | `KEYCLOAK_ISSUER`           | api-gateway      | Required expected JWT issuer |
 | `KEYCLOAK_AUDIENCE`         | api-gateway      | Required expected JWT audience |
+| `CORS_ALLOWED_ORIGINS`      | api-gateway      | Comma-separated explicit HTTPS origins; required in production |
 | `KAFKA_BROKERS`             | all Go services  | Comma-separated Kafka broker addresses   |
 | `POSTGRES_DSN`              | command, alert   | PostgreSQL connection string             |
 | `POSTGRES_DSN_FILE`         | command, alert   | Production PostgreSQL DSN secret file     |
