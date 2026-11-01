@@ -14,11 +14,11 @@ The platform has a working end-to-end pipeline: exchange data flows through Kafk
 
 Priority: critical. The dev stack bypasses authentication and uses hardcoded credentials.
 
-- [ ] Disable `DEV_MODE` in production and complete Keycloak JWT validation
-- [ ] Move all database credentials to a secrets manager (Vault or cloud)
-- [ ] Remove hardcoded passwords from `docker-compose.yml` (keep for local dev only)
+- [x] Disable `DEV_MODE` in production and complete Keycloak JWT validation
+- [x] Move all database credentials to a secrets manager (Vault or cloud)
+- [x] Remove hardcoded passwords from `docker-compose.yml` (keep for local dev only)
 - [x] Enable Redis AUTH and TLS in production config
-- [ ] Add CORS restrictions to the gateway for production origins
+- [x] Add CORS restrictions to the gateway for production origins
 - [x] Enable TLS for Kafka (SASL_SSL) in production client configuration
 
 ## Phase 2 — Production readiness 🟠
