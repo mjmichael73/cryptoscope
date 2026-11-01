@@ -15,7 +15,7 @@ This guide covers moving cryptoscope from local Docker Compose to a production e
 | Aspect                  | Local dev                      | Production                             |
 | ----------------------- | ------------------------------ | -------------------------------------- |
 | `DEV_MODE`              | `true` (auth bypass)           | `false` (JWT required)                 |
-| Database credentials    | Hardcoded in docker-compose    | Secrets manager / env vars             |
+| Database credentials    | Local development values      | Vault / cloud manager mounted files    |
 | Kafka                   | Plaintext, single broker       | SASL_SSL, multi-broker cluster         |
 | Redis                   | No auth, no TLS                | AUTH password + TLS                    |
 | TLS between services    | None                           | mTLS via service mesh                  |
@@ -24,6 +24,25 @@ This guide covers moving cryptoscope from local Docker Compose to a production e
 | Log shipping            | stdout JSON                    | Fluent Bit → Elasticsearch / Loki     |
 
 ## Required environment variables
+
+Set `CRYPTOSCOPE_ENV=production` on services that use databases. Production
+database credentials are read from read-only files rendered by Vault Agent or
+an equivalent cloud secrets operator. The application accepts `<NAME>_FILE`
+for the credential variables below and fails at startup if a required file is
+missing, unreadable, or empty. Plain credential environment variables are
+supported only outside production.
+
+| Services | File variable | Contents |
+| --- | --- | --- |
+| command-service, alert-service | `POSTGRES_DSN_FILE` | PostgreSQL DSN |
+| stream-processor | `MONGO_URI_FILE` | MongoDB URI |
+| stream-processor, query-service | `CLICKHOUSE_USER_FILE`, `CLICKHOUSE_PASSWORD_FILE` | ClickHouse username and password |
+
+For example, have Vault Agent render each service's secret to `/run/secrets`
+and configure the matching `*_FILE` variable to that path (including both
+`CLICKHOUSE_USER_FILE` and `CLICKHOUSE_PASSWORD_FILE`). Mount the directory
+read-only and restrict file permissions to the service user. For local
+development, omit `CRYPTOSCOPE_ENV=production` and use `.env` values.
 
 ### api-gateway
 
@@ -59,7 +78,7 @@ INGEST_POLL_INTERVAL_SECONDS=15
 KAFKA_BROKERS=kafka-0:9093,kafka-1:9093,kafka-2:9093
 KAFKA_TOPIC_TICKS=market.ticks.raw
 KAFKA_CONSUMER_GROUP=cryptoscope
-MONGO_URI=mongodb://user:pass@mongo:27017/?authSource=admin
+MONGO_URI_FILE=/run/secrets/mongo_uri
 MONGO_DB=cryptoscope
 CLICKHOUSE_ADDR=clickhouse-cluster:9000
 CLICKHOUSE_DB=cryptoscope
@@ -80,7 +99,7 @@ QUERY_SERVICE_GRPC_PORT=9001
 ### command-service
 
 ```bash
-POSTGRES_DSN=postgresql://user:pass@postgres:5432/cryptoscope?sslmode=require
+POSTGRES_DSN_FILE=/run/secrets/postgres_dsn
 KAFKA_BROKERS=kafka-0:9093,kafka-1:9093,kafka-2:9093
 KAFKA_TOPIC_EVENTS=domain.events
 COMMAND_SERVICE_HTTP_PORT=8002
@@ -89,7 +108,7 @@ COMMAND_SERVICE_HTTP_PORT=8002
 ### alert-service
 
 ```bash
-POSTGRES_DSN=postgresql://user:pass@postgres:5432/cryptoscope?sslmode=require
+POSTGRES_DSN_FILE=/run/secrets/postgres_dsn
 KAFKA_BROKERS=kafka-0:9093,kafka-1:9093,kafka-2:9093
 KAFKA_TOPIC_EVENTS=domain.events
 KAFKA_TOPIC_ALERTS=alerts.triggers

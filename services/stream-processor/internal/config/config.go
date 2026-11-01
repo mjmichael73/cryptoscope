@@ -38,13 +38,13 @@ func Load() Config {
 		ConsumerGroup: shared.Getenv("KAFKA_CONSUMER_GROUP", "cryptoscope") + "-processor",
 		EventsTopic:   shared.Getenv("KAFKA_TOPIC_EVENTS", "domain.events"),
 
-		MongoURI: shared.Getenv("MONGO_URI", "mongodb://localhost:27017"),
+		MongoURI: shared.GetenvSecret("MONGO_URI", "mongodb://localhost:27017"),
 		MongoDB:  shared.Getenv("MONGO_DB", "cryptoscope"),
 
 		ClickHouseAddr:     shared.Getenv("CLICKHOUSE_ADDR", "localhost:9000"),
 		ClickHouseDB:       shared.Getenv("CLICKHOUSE_DB", "cryptoscope"),
-		ClickHouseUser:     shared.Getenv("CLICKHOUSE_USER", "cryptoscope"),
-		ClickHousePassword: shared.Getenv("CLICKHOUSE_PASSWORD", "cryptoscope"),
+		ClickHouseUser:     shared.GetenvSecret("CLICKHOUSE_USER", "cryptoscope"),
+		ClickHousePassword: shared.GetenvSecret("CLICKHOUSE_PASSWORD", "cryptoscope"),
 
 		Intervals: shared.GetenvList("PROCESSOR_INTERVALS", []string{"1m", "5m", "1h"}),
 		TenantID:  shared.Getenv("TENANT_ID", "00000000-0000-0000-0000-000000000001"),

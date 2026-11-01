@@ -13,6 +13,28 @@ import (
 	"time"
 )
 
+// GetenvSecret reads a secret from the file named by <key>_FILE when set,
+// otherwise it uses the environment variable and fallback. This lets Vault
+// Agent or an orchestrator mount secrets without exposing them in env vars.
+func GetenvSecret(key, fallback string) string {
+	path := strings.TrimSpace(os.Getenv(key + "_FILE"))
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("CRYPTOSCOPE_ENV")), "production") && path == "" {
+		panic(fmt.Errorf("%s_FILE is required in production", key))
+	}
+	if path != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			panic(fmt.Errorf("read secret file for %s: %w", key, err))
+		}
+		value := strings.TrimRight(string(b), "\r\n")
+		if value == "" {
+			panic(fmt.Errorf("secret file for %s is empty", key))
+		}
+		return value
+	}
+	return Getenv(key, fallback)
+}
+
 // Getenv returns the value for key or the provided fallback when it is unset.
 func Getenv(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {

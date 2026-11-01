@@ -92,6 +92,11 @@ All configuration is done via environment variables. See `.env.example` for the 
 | `KEYCLOAK_AUDIENCE`         | api-gateway      | Required expected JWT audience |
 | `KAFKA_BROKERS`             | all Go services  | Comma-separated Kafka broker addresses   |
 | `POSTGRES_DSN`              | command, alert   | PostgreSQL connection string             |
+| `POSTGRES_DSN_FILE`         | command, alert   | Production PostgreSQL DSN secret file     |
+| `MONGO_URI_FILE`            | stream-processor | Production MongoDB URI secret file        |
+| `CLICKHOUSE_USER_FILE`      | processor, query | Production ClickHouse username file        |
+| `CLICKHOUSE_PASSWORD_FILE`  | processor, query | Production ClickHouse password file       |
+| `CRYPTOSCOPE_ENV`           | DB services      | Set to `production` to require secret files |
 | `CLICKHOUSE_HOST`           | query-service    | ClickHouse host                          |
 | `REDIS_ADDR`                | gateway, ingest  | Redis address                            |
 | `LOG_LEVEL`                 | all              | `debug`, `info`, `warn`, `error`        |

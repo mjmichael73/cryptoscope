@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -48,4 +50,39 @@ func TestMustGetenvMissing(t *testing.T) {
 	if _, err := MustGetenv("CS_TEST_DEFINITELY_UNSET"); err == nil {
 		t.Fatal("expected an error for a missing variable")
 	}
+}
+
+func TestGetenvSecretReadsSecretFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db-secret")
+	if err := os.WriteFile(path, []byte("postgres://db-user:secret@db/app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CS_TEST_DB_DSN", "postgres://ignored@db/app")
+	t.Setenv("CS_TEST_DB_DSN_FILE", path)
+
+	if got := GetenvSecret("CS_TEST_DB_DSN", "fallback"); got != "postgres://db-user:secret@db/app" {
+		t.Fatalf("GetenvSecret() = %q", got)
+	}
+}
+
+func TestGetenvSecretRejectsMissingFile(t *testing.T) {
+	t.Setenv("CS_TEST_DB_DSN_FILE", filepath.Join(t.TempDir(), "missing"))
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected missing secret file to fail")
+		}
+	}()
+	_ = GetenvSecret("CS_TEST_DB_DSN", "fallback")
+}
+
+func TestGetenvSecretRequiresFileInProduction(t *testing.T) {
+	t.Setenv("CRYPTOSCOPE_ENV", "production")
+	t.Setenv("CS_TEST_DB_DSN", "postgres://inline-secret@db/app")
+	t.Setenv("CS_TEST_DB_DSN_FILE", "")
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected production secret file requirement to fail")
+		}
+	}()
+	_ = GetenvSecret("CS_TEST_DB_DSN", "fallback")
 }

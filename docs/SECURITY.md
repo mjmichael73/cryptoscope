@@ -11,7 +11,7 @@ The local development stack runs with several security features disabled:
 | Issue                      | Dev mode               | Production target    |
 | -------------------------- | ---------------------- | -------------------- |
 | `DEV_MODE=true`            | Bypasses JWT auth      | Disabled             |
-| Hardcoded DB passwords     | `cryptoscope/cryptoscope` | Vault / env secrets |
+| Hardcoded DB passwords     | `cryptoscope/cryptoscope` | Vault / cloud manager mounted files |
 | No mTLS between services   | Plaintext internal comms | mTLS via service mesh |
 | Kafka plaintext            | No TLS or SASL         | SASL_SSL             |
 | Grafana default password   | `cryptoscope`          | Rotate on deploy     |
@@ -52,8 +52,9 @@ These values are configurable via environment variables.
 ## Secrets management
 
 - **Never commit secrets.** The `.env` file is gitignored; `.env.example` shows required variables.
-- **All service credentials** (DB passwords, Kafka brokers, Redis addr) are passed as environment variables in `docker-compose.yml` — hardcoded for local dev only.
-- **Production target**: HashiCorp Vault or cloud secret manager, with secret rotation.
+- **Production database credentials**: set `CRYPTOSCOPE_ENV=production` and provide credentials through read-only files rendered by Vault Agent or a cloud secrets operator. The services support `POSTGRES_DSN_FILE`, `MONGO_URI_FILE`, `CLICKHOUSE_USER_FILE`, and `CLICKHOUSE_PASSWORD_FILE`; missing, unreadable, or empty required files fail service startup. Plain credential environment values remain for local development.
+- **Local development**: keep credentials in ignored `.env` files or use the compose development defaults. Never commit the values.
+- Rotate credentials in the secret manager and restart services after rotation; the current integration reads files at startup.
 
 ## Dependency security
 
