@@ -21,6 +21,14 @@ import (
 func main() {
 	cfg := config.Load()
 	logger := logging.New("api-gateway", cfg.LogLevel)
+	environment := os.Getenv("APP_ENV")
+	if environment == "" {
+		environment = os.Getenv("ENVIRONMENT")
+	}
+	if err := cfg.Validate(environment); err != nil {
+		logger.Error("invalid gateway configuration", "error", err)
+		os.Exit(1)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -56,7 +64,8 @@ func main() {
 	keystore := auth.NewKeyStore(cfg.JWKSURL, cfg.Issuer, cfg.Audience)
 	if !cfg.DevMode {
 		if err := keystore.Refresh(ctx); err != nil {
-			logger.Warn("initial JWKS refresh failed, continuing without auth keys", "error", err)
+			logger.Error("initial JWKS refresh failed", "error", err)
+			os.Exit(1)
 		}
 
 		// Background JWKS refresh for key rotation

@@ -21,11 +21,12 @@ These are tracked in the roadmap under "Security Hardening."
 
 ## Authentication
 
-- **Gateway JWT auth**: The `api-gateway` validates Keycloak JWTs in production. In dev mode (`DEV_MODE=true`), authentication is skipped and a default tenant is used.
+- **Gateway JWT auth**: Outside dev mode, the `api-gateway` validates Keycloak JWT signatures using RS256 and checks the configured issuer, audience, and token time claims. Startup fails if auth configuration is incomplete or the initial JWKS fetch fails. Set `APP_ENV=production` (or `ENVIRONMENT=production`) to reject `DEV_MODE=true`.
 - **Keycloak config** (production):
   - `KEYCLOAK_JWKS_URL` — JWKS endpoint for token verification
   - `KEYCLOAK_ISSUER` — Expected issuer claim
   - `KEYCLOAK_AUDIENCE` — Expected audience claim
+- Every authenticated access token must contain a non-empty `tenant_id` claim. The gateway ignores client-supplied tenant identity on protected routes and propagates the verified claim; a user `sub` is not treated as a tenant ID.
 
 ## Multi-tenant isolation
 

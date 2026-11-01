@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/mojimich2015/cryptoscope/libs/go/tenant"
 )
 
 type KeyStore interface {
@@ -75,7 +76,7 @@ func (s *CachingKeyStore) Refresh(ctx context.Context) error {
 
 	keys := make(map[string]*rsa.PublicKey, len(jwks.Keys))
 	for _, k := range jwks.Keys {
-		if k.KTY != "RSA" {
+		if k.KTY != "RSA" || (k.ALG != "" && k.ALG != "RS256") || k.KID == "" {
 			continue
 		}
 		pub, err := decodeRSAPublicKey(k.N, k.E)
@@ -83,6 +84,9 @@ func (s *CachingKeyStore) Refresh(ctx context.Context) error {
 			continue
 		}
 		keys[k.KID] = pub
+	}
+	if len(keys) == 0 {
+		return fmt.Errorf("jwks contains no usable RS256 signing keys")
 	}
 
 	s.mu.Lock()
@@ -93,7 +97,7 @@ func (s *CachingKeyStore) Refresh(ctx context.Context) error {
 
 func (s *CachingKeyStore) KeyFunc(ctx context.Context) jwt.Keyfunc {
 	return func(token *jwt.Token) (any, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+		if token.Method != jwt.SigningMethodRS256 {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 
@@ -132,6 +136,9 @@ func (s *CachingKeyStore) Validate(ctx context.Context, rawToken string) (*jwt.M
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return nil, fmt.Errorf("unexpected claims type")
+	}
+	if ExtractTenantID(&claims) == "" {
+		return nil, fmt.Errorf("tenant_id claim is required")
 	}
 	return &claims, nil
 }
@@ -179,21 +186,24 @@ func ClaimsFrom(ctx context.Context) (*jwt.MapClaims, bool) {
 }
 
 func ExtractTenantID(claims *jwt.MapClaims) string {
-	if tid, ok := (*claims)["tenant_id"].(string); ok {
-		return tid
+	if claims == nil {
+		return ""
 	}
-	if tid, ok := (*claims)["sub"].(string); ok {
-		return tid
+	if tid, ok := (*claims)["tenant_id"].(string); ok {
+		return strings.TrimSpace(tid)
 	}
 	return ""
 }
 
 func ExtractTenantSlug(claims *jwt.MapClaims) string {
+	if claims == nil {
+		return ""
+	}
 	if slug, ok := (*claims)["tenant_slug"].(string); ok {
-		return slug
+		return strings.TrimSpace(slug)
 	}
 	if preferred, ok := (*claims)["preferred_username"].(string); ok {
-		return preferred
+		return strings.TrimSpace(preferred)
 	}
 	return ""
 }
@@ -220,6 +230,15 @@ func AuthMiddleware(keystore *CachingKeyStore) func(http.Handler) http.Handler {
 			}
 
 			ctx := WithClaims(r.Context(), claims)
+			tenantID := ExtractTenantID(claims)
+			if tenantID == "" {
+				http.Error(w, `{"error":"tenant_id claim is required"}`, http.StatusForbidden)
+				return
+			}
+			r.Header.Set("X-Tenant-Id", tenantID)
+			tenantSlug := ExtractTenantSlug(claims)
+			r.Header.Set("X-Tenant-Slug", tenantSlug)
+			ctx = tenant.NewContext(ctx, tenant.Identity{ID: tenantID, Slug: tenantSlug})
 			r = r.WithContext(ctx)
 			next.ServeHTTP(w, r)
 		})

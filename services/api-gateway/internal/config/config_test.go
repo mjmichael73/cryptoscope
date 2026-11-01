@@ -27,6 +27,34 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+func TestValidateRequiresKeycloakWhenAuthEnabled(t *testing.T) {
+	cfg := Config{}
+	if err := cfg.Validate("development"); err == nil {
+		t.Fatal("expected missing Keycloak settings to fail validation")
+	}
+	cfg = Config{JWKSURL: "http://keycloak:8080/jwks", Issuer: "http://keycloak:8080/realm", Audience: "api"}
+	if err := cfg.Validate("development"); err != nil {
+		t.Fatalf("expected valid auth config, got %v", err)
+	}
+}
+
+func TestValidateRejectsDevModeInProduction(t *testing.T) {
+	cfg := Config{DevMode: true}
+	if err := cfg.Validate("production"); err == nil {
+		t.Fatal("expected DEV_MODE to be rejected in production")
+	}
+	if err := cfg.Validate("Production"); err == nil {
+		t.Fatal("expected case-insensitive production environment to reject DEV_MODE")
+	}
+}
+
+func TestValidateRejectsInvalidJWKSURL(t *testing.T) {
+	cfg := Config{JWKSURL: "/jwks", Issuer: "http://keycloak/realm", Audience: "api"}
+	if err := cfg.Validate("production"); err == nil {
+		t.Fatal("expected relative JWKS URL to fail validation")
+	}
+}
+
 func TestLoadFromEnv(t *testing.T) {
 	os.Setenv("API_GATEWAY_HTTP_PORT", "9090")
 	os.Setenv("QUERY_SERVICE_GRPC_ADDR", "query:9001")

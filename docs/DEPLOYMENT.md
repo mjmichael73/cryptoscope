@@ -86,6 +86,10 @@ All configuration is done via environment variables. See `.env.example` for the 
 | Variable                    | Service          | Description                              |
 | --------------------------- | ---------------- | ---------------------------------------- |
 | `DEV_MODE`                  | api-gateway      | `true` to bypass JWT auth (dev only)     |
+| `APP_ENV`                   | api-gateway      | Set to `production` to forbid dev auth bypass; `ENVIRONMENT` is also accepted |
+| `KEYCLOAK_JWKS_URL`         | api-gateway      | Required outside dev mode; signing key endpoint |
+| `KEYCLOAK_ISSUER`           | api-gateway      | Required expected JWT issuer |
+| `KEYCLOAK_AUDIENCE`         | api-gateway      | Required expected JWT audience |
 | `KAFKA_BROKERS`             | all Go services  | Comma-separated Kafka broker addresses   |
 | `POSTGRES_DSN`              | command, alert   | PostgreSQL connection string             |
 | `CLICKHOUSE_HOST`           | query-service    | ClickHouse host                          |

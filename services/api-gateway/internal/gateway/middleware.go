@@ -3,6 +3,7 @@ package gateway
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mojimich2015/cryptoscope/libs/go/ratelimit"
@@ -54,6 +55,12 @@ func TenantMiddleware(logger *slog.Logger, devMode bool) func(http.Handler) http
 					tenantID = "demo-tenant"
 					tenantSlug = "demo"
 				} else {
+					// Protected routes resolve the tenant from a verified JWT claim.
+					// Other routes still require tenant context when they need it.
+					if strings.HasPrefix(r.URL.Path, "/v1/") {
+						next.ServeHTTP(w, r)
+						return
+					}
 					http.Error(w, `{"error":"tenant ID is required"}`, http.StatusBadRequest)
 					return
 				}
