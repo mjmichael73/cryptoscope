@@ -97,6 +97,9 @@ All configuration is done via environment variables. See `.env.example` for the 
 | `KEYCLOAK_AUDIENCE`         | api-gateway      | Required expected JWT audience |
 | `CORS_ALLOWED_ORIGINS`      | api-gateway      | Comma-separated explicit HTTPS origins; required in production |
 | `KAFKA_BROKERS`             | all Go services  | Comma-separated Kafka broker addresses   |
+| `KAFKA_SECURITY_PROTOCOL`   | all Kafka clients | `PLAINTEXT` locally; `SASL_SSL` in production |
+| `KAFKA_SASL_USERNAME_FILE` / `KAFKA_SASL_PASSWORD_FILE` | all Kafka clients | Mounted Kafka SASL credentials in production |
+| `KAFKA_TLS_CA_FILE`         | all Kafka clients | Optional additional CA bundle for private broker certificates |
 | `POSTGRES_DSN`              | command, alert   | PostgreSQL connection string             |
 | `POSTGRES_DSN_FILE`         | command, alert   | Production PostgreSQL DSN secret file     |
 | `MONGO_URI_FILE`            | stream-processor | Production MongoDB URI secret file        |

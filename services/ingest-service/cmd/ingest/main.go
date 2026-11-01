@@ -31,6 +31,16 @@ func main() {
 		logger.Error("invalid ingest configuration", "error", err)
 		os.Exit(1)
 	}
+	kafkaConfig, err := kafka.LoadClientConfig()
+	if err != nil {
+		logger.Error("invalid Kafka configuration", "error", err)
+		os.Exit(1)
+	}
+	kafkaTransport, err := kafkaConfig.Transport()
+	if err != nil {
+		logger.Error("invalid Kafka transport configuration", "error", err)
+		os.Exit(1)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -71,7 +81,7 @@ func main() {
 
 	deduper := idempotency.NewStore(redisClient, "ingest:dedupe", 24*time.Hour)
 
-	producer := kafka.NewProducer(cfg.KafkaBrokers, cfg.TicksTopic)
+	producer := kafka.NewProducerWithTransport(cfg.KafkaBrokers, cfg.TicksTopic, kafkaTransport)
 	defer producer.Close()
 
 	proc := pipeline.New(deduper, producer, logger)

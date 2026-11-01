@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine = build_engine(settings.sqlalchemy_dsn)
     app.state.session_factory = build_session_factory(engine)
 
-    producer = JsonProducer(settings.kafka_broker_list)
+    producer = JsonProducer(settings.kafka_broker_list, **settings.kafka_client_options)
     await producer.start()
     app.state.publisher = KafkaEventPublisher(producer, settings.events_topic)
 

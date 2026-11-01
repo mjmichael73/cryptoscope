@@ -16,8 +16,9 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 class JsonProducer:
     """Publishes JSON encoded messages to Kafka."""
 
-    def __init__(self, brokers: list[str]) -> None:
+    def __init__(self, brokers: list[str], **client_options: Any) -> None:
         self._brokers = brokers
+        self._client_options = client_options
         self._producer: AIOKafkaProducer | None = None
 
     async def start(self) -> None:
@@ -25,6 +26,7 @@ class JsonProducer:
             bootstrap_servers=self._brokers,
             enable_idempotence=True,
             acks="all",
+            **self._client_options,
         )
         await self._producer.start()
 
@@ -44,13 +46,14 @@ class JsonProducer:
 class JsonConsumer:
     """Consumes JSON encoded messages from a topic as part of a group."""
 
-    def __init__(self, brokers: list[str], topic: str, group: str) -> None:
+    def __init__(self, brokers: list[str], topic: str, group: str, **client_options: Any) -> None:
         self._consumer = AIOKafkaConsumer(
             topic,
             bootstrap_servers=brokers,
             group_id=group,
             enable_auto_commit=False,
             auto_offset_reset="earliest",
+            **client_options,
         )
 
     async def start(self) -> None:

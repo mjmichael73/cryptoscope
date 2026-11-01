@@ -31,10 +31,15 @@ async def lifespan(app: FastAPI) -> Any:
     engine = build_engine(settings.sqlalchemy_dsn)
     app.state.session_factory = build_session_factory(engine)
 
-    consumer = JsonConsumer(settings.kafka_broker_list, settings.events_topic, "alert-service")
+    consumer = JsonConsumer(
+        settings.kafka_broker_list,
+        settings.events_topic,
+        "alert-service",
+        **settings.kafka_client_options,
+    )
     await consumer.start()
 
-    producer = JsonProducer(settings.kafka_broker_list)
+    producer = JsonProducer(settings.kafka_broker_list, **settings.kafka_client_options)
     await producer.start()
 
     dispatcher = _build_dispatcher(settings)

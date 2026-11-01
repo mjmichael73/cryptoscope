@@ -50,6 +50,16 @@ services reject production startup without a password and TLS. The Redis TLS
 client verifies the server certificate using the container's system trust
 store, so install the issuing CA in the image when using a private CA.
 
+Kafka brokers must enable SASL over TLS for production listeners. Set
+`KAFKA_SECURITY_PROTOCOL=SASL_SSL`, `KAFKA_SASL_MECHANISM=SCRAM-SHA-512`, and
+mount the broker-issued username and password as
+`KAFKA_SASL_USERNAME_FILE` and `KAFKA_SASL_PASSWORD_FILE` for every service
+that produces or consumes Kafka messages. The clients verify broker
+certificates using the system trust store; set `KAFKA_TLS_CA_FILE` to an
+additional CA bundle when a private CA is used. The service startup config
+rejects plaintext production settings or missing credential files. Do not
+place Kafka credentials directly in environment variables in production.
+
 ### api-gateway
 
 ```bash
@@ -78,6 +88,11 @@ missing, wildcard, HTTP, or malformed origins during production startup.
 
 ```bash
 KAFKA_BROKERS=kafka-0:9093,kafka-1:9093,kafka-2:9093
+KAFKA_SECURITY_PROTOCOL=SASL_SSL
+KAFKA_SASL_MECHANISM=SCRAM-SHA-512
+KAFKA_SASL_USERNAME_FILE=/run/secrets/kafka_sasl_username
+KAFKA_SASL_PASSWORD_FILE=/run/secrets/kafka_sasl_password
+KAFKA_TLS_CA_FILE=/run/secrets/kafka_ca.pem
 KAFKA_TOPIC_TICKS=market.ticks.raw
 REDIS_ADDR=redis-cluster:6379
 REDIS_PASSWORD_FILE=/run/secrets/redis_password
@@ -92,6 +107,11 @@ INGEST_POLL_INTERVAL_SECONDS=15
 
 ```bash
 KAFKA_BROKERS=kafka-0:9093,kafka-1:9093,kafka-2:9093
+KAFKA_SECURITY_PROTOCOL=SASL_SSL
+KAFKA_SASL_MECHANISM=SCRAM-SHA-512
+KAFKA_SASL_USERNAME_FILE=/run/secrets/kafka_sasl_username
+KAFKA_SASL_PASSWORD_FILE=/run/secrets/kafka_sasl_password
+KAFKA_TLS_CA_FILE=/run/secrets/kafka_ca.pem
 KAFKA_TOPIC_TICKS=market.ticks.raw
 KAFKA_CONSUMER_GROUP=cryptoscope
 MONGO_URI_FILE=/run/secrets/mongo_uri
@@ -117,6 +137,11 @@ QUERY_SERVICE_GRPC_PORT=9001
 ```bash
 POSTGRES_DSN_FILE=/run/secrets/postgres_dsn
 KAFKA_BROKERS=kafka-0:9093,kafka-1:9093,kafka-2:9093
+KAFKA_SECURITY_PROTOCOL=SASL_SSL
+KAFKA_SASL_MECHANISM=SCRAM-SHA-512
+KAFKA_SASL_USERNAME_FILE=/run/secrets/kafka_sasl_username
+KAFKA_SASL_PASSWORD_FILE=/run/secrets/kafka_sasl_password
+KAFKA_TLS_CA_FILE=/run/secrets/kafka_ca.pem
 KAFKA_TOPIC_EVENTS=domain.events
 COMMAND_SERVICE_HTTP_PORT=8002
 ```
@@ -126,6 +151,11 @@ COMMAND_SERVICE_HTTP_PORT=8002
 ```bash
 POSTGRES_DSN_FILE=/run/secrets/postgres_dsn
 KAFKA_BROKERS=kafka-0:9093,kafka-1:9093,kafka-2:9093
+KAFKA_SECURITY_PROTOCOL=SASL_SSL
+KAFKA_SASL_MECHANISM=SCRAM-SHA-512
+KAFKA_SASL_USERNAME_FILE=/run/secrets/kafka_sasl_username
+KAFKA_SASL_PASSWORD_FILE=/run/secrets/kafka_sasl_password
+KAFKA_TLS_CA_FILE=/run/secrets/kafka_ca.pem
 KAFKA_TOPIC_EVENTS=domain.events
 KAFKA_TOPIC_ALERTS=alerts.triggers
 ALERT_SERVICE_HTTP_PORT=8003

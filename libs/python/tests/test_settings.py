@@ -56,3 +56,46 @@ def test_database_secrets_require_files_in_production(monkeypatch):
         assert "POSTGRES_DSN_FILE is required in production" in str(exc)
     else:
         raise AssertionError("production settings should require a mounted secret")
+
+
+def test_kafka_requires_sasl_ssl_and_mounted_credentials_in_production(monkeypatch):
+    monkeypatch.setenv("CRYPTOSCOPE_ENV", "production")
+    monkeypatch.setenv("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT")
+    monkeypatch.delenv("KAFKA_SASL_USERNAME_FILE", raising=False)
+    monkeypatch.delenv("KAFKA_SASL_PASSWORD_FILE", raising=False)
+    try:
+        BaseServiceSettings()
+    except ValueError as exc:
+        assert "KAFKA_SECURITY_PROTOCOL must be SASL_SSL" in str(exc)
+    else:
+        raise AssertionError("production settings should reject plaintext Kafka")
+
+    monkeypatch.setenv("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
+    try:
+        BaseServiceSettings()
+    except ValueError as exc:
+        assert "KAFKA_SASL_USERNAME_FILE is required in production" in str(exc)
+    else:
+        raise AssertionError("SASL_SSL settings should require mounted Kafka credentials")
+
+
+def test_kafka_security_options_use_secret_files_and_verified_tls(tmp_path, monkeypatch):
+    username_file = tmp_path / "kafka-username"
+    password_file = tmp_path / "kafka-password"
+    username_file.write_text("service-user\n", encoding="utf-8")
+    password_file.write_text("service-password\n", encoding="utf-8")
+    monkeypatch.setenv("CRYPTOSCOPE_ENV", "production")
+    monkeypatch.setenv("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
+    monkeypatch.setenv("KAFKA_SASL_USERNAME_FILE", str(username_file))
+    monkeypatch.setenv("KAFKA_SASL_PASSWORD_FILE", str(password_file))
+    monkeypatch.setenv("KAFKA_TLS_CA_FILE", "")
+
+    settings = BaseServiceSettings()
+    options = settings.kafka_client_options
+    assert options["security_protocol"] == "SASL_SSL"
+    assert options["sasl_mechanism"] == "SCRAM-SHA-512"
+    assert options["sasl_plain_username"] == "service-user"
+    assert options["sasl_plain_password"] == "service-password"
+    assert options["ssl_context"].check_hostname
+    assert options["ssl_context"].verify_mode
+    assert "service-password" not in repr(settings.kafka_sasl_password)

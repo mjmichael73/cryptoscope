@@ -25,6 +25,16 @@ import (
 func main() {
 	cfg := config.Load()
 	logger := logging.New("stream-processor", cfg.LogLevel)
+	kafkaConfig, err := kafka.LoadClientConfig()
+	if err != nil {
+		logger.Error("invalid Kafka configuration", "error", err)
+		os.Exit(1)
+	}
+	kafkaTransport, err := kafkaConfig.Transport()
+	if err != nil {
+		logger.Error("invalid Kafka transport configuration", "error", err)
+		os.Exit(1)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -65,12 +75,12 @@ func main() {
 	}
 
 	aggregator := aggregate.New(cfg.Intervals)
-	producer := kafka.NewProducer(cfg.KafkaBrokers, cfg.EventsTopic)
+	producer := kafka.NewProducerWithTransport(cfg.KafkaBrokers, cfg.EventsTopic, kafkaTransport)
 	defer producer.Close()
 
 	proc := etl.New(aggregator, archive, candles, producer, cfg.EventsTopic, cfg.TenantID, logger)
 
-	consumer := kafka.NewConsumer(cfg.KafkaBrokers, cfg.TicksTopic, cfg.ConsumerGroup)
+	consumer := kafka.NewConsumerWithTransport(cfg.KafkaBrokers, cfg.TicksTopic, cfg.ConsumerGroup, kafkaTransport)
 	defer consumer.Close()
 
 	logger.Info("stream processor starting",

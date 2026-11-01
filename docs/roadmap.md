@@ -19,7 +19,7 @@ Priority: critical. The dev stack bypasses authentication and uses hardcoded cre
 - [ ] Remove hardcoded passwords from `docker-compose.yml` (keep for local dev only)
 - [x] Enable Redis AUTH and TLS in production config
 - [ ] Add CORS restrictions to the gateway for production origins
-- [ ] Enable TLS for Kafka (SASL_SSL) in production manifests
+- [x] Enable TLS for Kafka (SASL_SSL) in production client configuration
 
 ## Phase 2 — Production readiness 🟠
 
