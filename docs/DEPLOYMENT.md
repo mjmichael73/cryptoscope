@@ -3,6 +3,11 @@
 ## Local development
 
 The full stack runs with Docker Compose. The only host dependency is Docker.
+Compose reads database and Grafana credentials from `.env`; the checked-in
+`.env.example` contains sample values for local development only. Copy it
+before starting the stack, and replace those values in any shared environment.
+Compose intentionally rejects missing credentials instead of embedding
+passwords in `docker-compose.yml`.
 
 ```bash
 cp .env.example .env
@@ -97,6 +102,10 @@ All configuration is done via environment variables. See `.env.example` for the 
 | `CLICKHOUSE_USER_FILE`      | processor, query | Production ClickHouse username file        |
 | `CLICKHOUSE_PASSWORD_FILE`  | processor, query | Production ClickHouse password file       |
 | `CRYPTOSCOPE_ENV`           | DB services      | Set to `production` to require secret files |
+| `MONGO_ROOT_USERNAME`       | local Compose    | Local MongoDB root username                |
+| `MONGO_ROOT_PASSWORD`       | local Compose    | Local MongoDB root password                |
+| `GRAFANA_ADMIN_USER`        | local Compose    | Local Grafana admin username               |
+| `GRAFANA_ADMIN_PASSWORD`    | local Compose    | Local Grafana admin password               |
 | `CLICKHOUSE_HOST`           | query-service    | ClickHouse host                          |
 | `REDIS_ADDR`                | gateway, ingest  | Redis address                            |
 | `LOG_LEVEL`                 | all              | `debug`, `info`, `warn`, `error`        |

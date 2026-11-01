@@ -11,10 +11,10 @@ The local development stack runs with several security features disabled:
 | Issue                      | Dev mode               | Production target    |
 | -------------------------- | ---------------------- | -------------------- |
 | `DEV_MODE=true`            | Bypasses JWT auth      | Disabled             |
-| Hardcoded DB passwords     | `cryptoscope/cryptoscope` | Vault / cloud manager mounted files |
+| Development DB passwords  | Sample values in ignored `.env` | Vault / cloud manager mounted files |
 | No mTLS between services   | Plaintext internal comms | mTLS via service mesh |
 | Kafka plaintext            | No TLS or SASL         | SASL_SSL             |
-| Grafana default password   | `cryptoscope`          | Rotate on deploy     |
+| Grafana development password | Sample value in ignored `.env` | Set a secret on deploy |
 | Redis no auth              | No password            | Require auth + TLS   |
 
 These are tracked in the roadmap under "Security Hardening."
@@ -53,7 +53,7 @@ These values are configurable via environment variables.
 
 - **Never commit secrets.** The `.env` file is gitignored; `.env.example` shows required variables.
 - **Production database credentials**: set `CRYPTOSCOPE_ENV=production` and provide credentials through read-only files rendered by Vault Agent or a cloud secrets operator. The services support `POSTGRES_DSN_FILE`, `MONGO_URI_FILE`, `CLICKHOUSE_USER_FILE`, and `CLICKHOUSE_PASSWORD_FILE`; missing, unreadable, or empty required files fail service startup. Plain credential environment values remain for local development.
-- **Local development**: keep credentials in ignored `.env` files or use the compose development defaults. Never commit the values.
+- **Local development**: copy `.env.example` to ignored `.env` and keep credentials there. Compose requires these variables and contains no embedded password values. Never commit the values.
 - Rotate credentials in the secret manager and restart services after rotation; the current integration reads files at startup.
 
 ## Dependency security

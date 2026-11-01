@@ -25,8 +25,8 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.3-alpine
     environment:
-      CLICKHOUSE_USER: cryptoscope
-      CLICKHOUSE_PASSWORD: cryptoscope
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:?Set CLICKHOUSE_USER in .env}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}
       CLICKHOUSE_DB: cryptoscope
     ports:
       - "8123:8123"
@@ -45,15 +45,15 @@ services:
   mongo:
     image: mongo:7.0
     environment:
-      MONGO_INITDB_ROOT_USERNAME: cryptoscope
-      MONGO_INITDB_ROOT_PASSWORD: cryptoscope
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
       MONGO_INITDB_DATABASE: cryptoscope
     ports:
       - "27017:27017"
     volumes:
       - mongodata:/data/db
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh --quiet -u cryptoscope -p cryptoscope
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD"
       interval: 5s
       timeout: 3s
       retries: 5
@@ -144,8 +144,8 @@ services:
   grafana:
     image: grafana/grafana:11.6.16
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: cryptoscope
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?Set GRAFANA_ADMIN_USER in .env}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
       GF_INSTALL_PLUGINS: ""
     ports:
       - "3000:3000"
@@ -194,12 +194,12 @@ services:
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC_TICKS: market.ticks.raw
       KAFKA_CONSUMER_GROUP: cryptoscope
-      MONGO_URI: mongodb://cryptoscope:cryptoscope@mongo:27017/?authSource=admin
+      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}:${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}@mongo:27017/?authSource=admin
       MONGO_DB: cryptoscope
       CLICKHOUSE_ADDR: clickhouse:9000
       CLICKHOUSE_DB: cryptoscope
-      CLICKHOUSE_USER: cryptoscope
-      CLICKHOUSE_PASSWORD: cryptoscope
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:?Set CLICKHOUSE_USER in .env}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}
       TENANT_ID: demo-tenant
       INTERVALS: 1m,5m,1h,1d
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
@@ -248,8 +248,8 @@ services:
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_HTTP_PORT: 8123
       CLICKHOUSE_DB: cryptoscope
-      CLICKHOUSE_USER: cryptoscope
-      CLICKHOUSE_PASSWORD: cryptoscope
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:?Set CLICKHOUSE_USER in .env}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}
       QUERY_SERVICE_HTTP_PORT: "8001"
       QUERY_SERVICE_GRPC_PORT: "9001"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
