@@ -1,0 +1,33 @@
+# Auto-provisioned Grafana datasource for Prometheus.
+# Mounted into the Grafana container at /etc/grafana/provisioning/datasources/.
+#
+# In Docker Compose, mount this directory:
+#   volumes:
+#     - ./deploy/grafana/provisioning:/etc/grafana/provisioning
+#
+# In Kubernetes, use a ConfigMap volume.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: "15s"
+      httpMethod: POST
+
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: true
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: true
+        filterBySpanID: true
+      nodeGraph:
+        enabled: true

@@ -20,23 +20,8 @@ services:
   # ---------------------------------------------------------------------------
   # Data stores
   # ---------------------------------------------------------------------------
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: cryptoscope
-      POSTGRES_PASSWORD: cryptoscope
-      POSTGRES_DB: cryptoscope
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cryptoscope"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    logging: *default-logging
-
+  # Postgres is the shared instance from ~/projects/shared-services
+  # (external network shared-services-network, database: cryptoscope).
   clickhouse:
     image: clickhouse/clickhouse-server:24.3-alpine
     environment:
@@ -54,6 +39,8 @@ services:
       timeout: 3s
       retries: 5
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   mongo:
     image: mongo:7.0
@@ -71,17 +58,22 @@ services:
       timeout: 3s
       retries: 5
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      # Host 6379 belongs to the shared-services redis; expose this one on 6380.
+      - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   # ---------------------------------------------------------------------------
   # Message broker
@@ -92,6 +84,8 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   kafka:
     image: confluentinc/cp-kafka:7.6.12
@@ -113,6 +107,8 @@ services:
       timeout: 5s
       retries: 5
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   # ---------------------------------------------------------------------------
   # Observability
@@ -126,6 +122,8 @@ services:
     volumes:
       - ./deploy/otel-collector.yaml:/etc/otel-collector.yaml
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   prometheus:
     image: prom/prometheus:v2.55.1
@@ -140,6 +138,8 @@ services:
       - ./deploy/prometheus.yaml:/etc/prometheus/prometheus.yaml
       - promdata:/prometheus
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   grafana:
     image: grafana/grafana:11.6.16
@@ -151,7 +151,11 @@ services:
       - "3000:3000"
     volumes:
       - grafanadata:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning
+      - ./deploy/grafana-dashboards:/var/lib/grafana/dashboards
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   # ---------------------------------------------------------------------------
   # Application services
@@ -178,6 +182,8 @@ services:
       redis:
         condition: service_healthy
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   stream-processor:
     build:
@@ -207,6 +213,8 @@ services:
       clickhouse:
         condition: service_healthy
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   command-service:
     build:
@@ -214,7 +222,7 @@ services:
       dockerfile: services/command-service/Dockerfile
     environment:
       LOG_LEVEL: debug
-      POSTGRES_DSN: postgres://cryptoscope:cryptoscope@postgres:5432/cryptoscope?sslmode=disable
+      POSTGRES_DSN: postgres://cryptoscope:HCtUz4EMXyavcKRC@postgres:5432/cryptoscope?sslmode=disable
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC_EVENTS: domain.events
       COMMAND_SERVICE_HTTP_PORT: "8002"
@@ -223,13 +231,13 @@ services:
     ports:
       - "8002:8002"
     depends_on:
-      postgres:
-        condition: service_healthy
       kafka:
         condition: service_healthy
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8002"
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   query-service:
     build:
@@ -252,6 +260,8 @@ services:
       clickhouse:
         condition: service_healthy
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   api-gateway:
     build:
@@ -285,6 +295,8 @@ services:
       redis:
         condition: service_healthy
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   alert-service:
     build:
@@ -292,21 +304,38 @@ services:
       dockerfile: services/alert-service/Dockerfile
     environment:
       LOG_LEVEL: debug
-      POSTGRES_DSN: postgres://cryptoscope:cryptoscope@postgres:5432/cryptoscope?sslmode=disable
+      POSTGRES_DSN: postgres://cryptoscope:HCtUz4EMXyavcKRC@postgres:5432/cryptoscope?sslmode=disable
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC_EVENTS: domain.events
       KAFKA_TOPIC_ALERTS: alerts.triggers
       ALERT_SERVICE_HTTP_PORT: "8003"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAMESPACE: cryptoscope
+      # --- Notification channels (all optional, empty = disabled) ---
+      # Uncomment and configure the channels you want to enable.
+      #
+      # Email (SMTP) — sends alert emails via an SMTP server.
+      # SMTP_HOST: ""
+      # SMTP_PORT: "587"
+      # SMTP_USERNAME: ""
+      # SMTP_PASSWORD: ""
+      # SMTP_FROM: "alerts@example.com"
+      # SMTP_TO: "ops@example.com"  # comma-separated for multiple recipients
+      #
+      # Slack — posts rich-formatted alerts to a Slack incoming webhook.
+      # SLACK_WEBHOOK_URL: ""
+      #
+      # Generic webhook — POSTs JSON trigger data to any HTTP endpoint.
+      # ALERT_WEBHOOK_URL: ""
+      # ALERT_WEBHOOK_AUTH: ""  # e.g. "Bearer <token>"
     ports:
       - "8003:8003"
     depends_on:
-      postgres:
-        condition: service_healthy
       kafka:
         condition: service_healthy
     logging: *default-logging
+    networks:
+      - shared-services-network
 
   frontend:
     build:
@@ -318,10 +347,16 @@ services:
       api-gateway:
         condition: service_started
     logging: *default-logging
+    networks:
+      - shared-services-network
 
 volumes:
-  pgdata:
   chdata:
   mongodata:
   promdata:
   grafanadata:
+
+networks:
+  shared-services-network:
+    external: true
+    name: shared-services-network

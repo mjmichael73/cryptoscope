@@ -1,0 +1,24 @@
+# Allow all pods in the namespace to reach CoreDNS.
+# Without this, no pod can resolve service names and every connection fails.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: cryptoscope
+  labels:
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

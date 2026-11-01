@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: cryptoscope
+  labels:
+    app: api-gateway
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: cryptoscope/api-gateway:latest
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9101
+              name: metrics
+          env:
+            - name: LOG_LEVEL
+              value: "info"
+            - name: DEV_MODE
+              value: "false"
+            - name: API_GATEWAY_HTTP_PORT
+              value: "8080"
+            - name: QUERY_SERVICE_GRPC_ADDR
+              value: "query-service:9001"
+            - name: COMMAND_SERVICE_HTTP_ADDR
+              value: "http://command-service:8002"
+            - name: ALERT_SERVICE_HTTP_ADDR
+              value: "http://alert-service:8003"
+            - name: REDIS_ADDR
+              value: "redis:6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cryptoscope-secrets
+                  key: REDIS_PASSWORD
+                  optional: true
+            - name: KEYCLOAK_JWKS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cryptoscope-secrets
+                  key: KEYCLOAK_JWKS_URL
+            - name: KEYCLOAK_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: cryptoscope-secrets
+                  key: KEYCLOAK_ISSUER
+            - name: KEYCLOAK_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: cryptoscope-secrets
+                  key: KEYCLOAK_AUDIENCE
+            - name: RATE_LIMIT_REQUESTS_PER_MINUTE
+              value: "120"
+            - name: RATE_LIMIT_BURST
+              value: "40"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_SERVICE_NAMESPACE
+              value: "cryptoscope"
+            - name: PROMETHEUS_METRICS_PORT
+              value: "9101"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: cryptoscope
+  labels:
+    app: api-gateway
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+    - port: 9101
+      targetPort: 9101
+      name: metrics
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-gateway
+  namespace: cryptoscope
+  labels:
+    app: api-gateway
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.cryptoscope.example.com
+      http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8080

@@ -1,0 +1,96 @@
+# Security — cryptoscope
+
+## Reporting a vulnerability
+
+If you discover a security vulnerability, please report it privately. **Do not open a public GitHub issue.** Contact the maintainer directly at `mojimich2015@gmail.com`.
+
+## Known issues (dev mode)
+
+The local development stack runs with several security features disabled:
+
+| Issue                      | Dev mode               | Production target    |
+| -------------------------- | ---------------------- | -------------------- |
+| `DEV_MODE=true`            | Bypasses JWT auth      | Disabled             |
+| Hardcoded DB passwords     | `cryptoscope/cryptoscope` | Vault / env secrets |
+| No mTLS between services   | Plaintext internal comms | mTLS via service mesh |
+| Kafka plaintext            | No TLS or SASL         | SASL_SSL             |
+| Grafana default password   | `cryptoscope`          | Rotate on deploy     |
+| Redis no auth              | No password            | Require auth + TLS   |
+
+These are tracked in the roadmap under "Security Hardening."
+
+## Authentication
+
+- **Gateway JWT auth**: The `api-gateway` validates Keycloak JWTs in production. In dev mode (`DEV_MODE=true`), authentication is skipped and a default tenant is used.
+- **Keycloak config** (production):
+  - `KEYCLOAK_JWKS_URL` — JWKS endpoint for token verification
+  - `KEYCLOAK_ISSUER` — Expected issuer claim
+  - `KEYCLOAK_AUDIENCE` — Expected audience claim
+
+## Multi-tenant isolation
+
+Every query is scoped by `tenant_id`. The gateway resolves the tenant from the JWT and propagates it via gRPC metadata. All data stores filter on `tenant_id` at the row level.
+
+**Enforcement points:**
+- `api-gateway`: extracts `tenant_id` from JWT, passes in gRPC metadata and HTTP headers
+- `command-service`: validates tenant ownership before writes
+- `query-service`: filters all reads by `tenant_id`
+- `stream-processor`: tags candles with `TENANT_ID` from env
+
+## Rate limiting
+
+The gateway applies Redis-backed token-bucket rate limiting per tenant:
+
+```yaml
+RATE_LIMIT_REQUESTS_PER_MINUTE: "120"
+RATE_LIMIT_BURST: "40"
+```
+
+These values are configurable via environment variables.
+
+## Secrets management
+
+- **Never commit secrets.** The `.env` file is gitignored; `.env.example` shows required variables.
+- **All service credentials** (DB passwords, Kafka brokers, Redis addr) are passed as environment variables in `docker-compose.yml` — hardcoded for local dev only.
+- **Production target**: HashiCorp Vault or cloud secret manager, with secret rotation.
+
+## Dependency security
+
+```bash
+# Go — check for vulnerable dependencies
+go list -m all | nancy sleuth
+
+# Python — audit installed packages
+pip audit
+
+# Frontend — audit npm packages
+npm audit
+
+# Go vet (catches common issues)
+make lint-go
+```
+
+Keep dependencies updated regularly. The `Makefile` lint targets catch many issues at development time.
+
+## Network security
+
+- **Local dev**: All services communicate over Docker's internal network (no TLS).
+- **Production**: Add a service mesh (e.g., Istio, Linkerd) for mTLS between services, or configure TLS at each hop.
+- **CORS**: The `api-gateway` should restrict origins in production. Currently uses defaults.
+
+## Logging and audit
+
+- All services emit structured JSON logs with `service`, `tenant_id`, and `trace_id`.
+- OpenTelemetry traces are exported to Jaeger for distributed tracing.
+- Sensitive fields (passwords, tokens) must never appear in logs.
+
+## Recommendations for production
+
+1. Replace all hardcoded credentials with a secrets manager
+2. Disable `DEV_MODE` and configure Keycloak properly
+3. Enable TLS for Kafka, Redis, PostgreSQL, and ClickHouse
+4. Add mTLS between internal services
+5. Set up alerting on auth failures and rate-limit hits
+6. Rotate Grafana admin password before deploying
+7. Restrict CORS to known frontend origins
+8. Enable Redis AUTH and TLS

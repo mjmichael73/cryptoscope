@@ -1,0 +1,64 @@
+# Alert-service egress:
+#   - PostgreSQL (write triggers, read rules)
+#   - Kafka (consume domain events, publish trigger events)
+#   - OTel Collector (traces)
+# Ingress:
+#   - api-gateway (HTTP 8003)
+#   - Prometheus scrape
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alert-service
+  namespace: cryptoscope
+  labels:
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  podSelector:
+    matchLabels:
+      app: alert-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # api-gateway → alert-service
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8003
+    # Prometheus scrape
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 8003
+  egress:
+    # PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Kafka
+    - to:
+        - podSelector:
+            matchLabels:
+              app: kafka
+      ports:
+        - protocol: TCP
+          port: 9092
+    # OTel Collector
+    - to:
+        - podSelector:
+            matchLabels:
+              app: otel-collector
+      ports:
+        - protocol: TCP
+          port: 4317

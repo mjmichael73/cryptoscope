@@ -1,0 +1,73 @@
+# Command-service egress:
+#   - PostgreSQL (write watchlists, alert rules)
+#   - Kafka (publish domain events)
+#   - Redis (idempotency keys)
+#   - OTel Collector (traces)
+# Ingress:
+#   - api-gateway (HTTP 8002)
+#   - Prometheus scrape
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-command-service
+  namespace: cryptoscope
+  labels:
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  podSelector:
+    matchLabels:
+      app: command-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # api-gateway → command-service
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8002
+    # Prometheus scrape
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 8002
+  egress:
+    # PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Kafka
+    - to:
+        - podSelector:
+            matchLabels:
+              app: kafka
+      ports:
+        - protocol: TCP
+          port: 9092
+    # Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # OTel Collector
+    - to:
+        - podSelector:
+            matchLabels:
+              app: otel-collector
+      ports:
+        - protocol: TCP
+          port: 4317

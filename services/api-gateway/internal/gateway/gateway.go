@@ -13,23 +13,26 @@ import (
 	"github.com/mojimich2015/cryptoscope/libs/go/ratelimit"
 	"github.com/mojimich2015/cryptoscope/services/api-gateway/internal/auth"
 	"github.com/mojimich2015/cryptoscope/services/api-gateway/internal/client"
+	"github.com/mojimich2015/cryptoscope/services/api-gateway/internal/config"
 )
 
 type Gateway struct {
-	query   *client.QueryClient
-	command *httputil.ReverseProxy
-	alert   *httputil.ReverseProxy
-	logger  *slog.Logger
-	mux     *chi.Mux
+	query      *client.QueryClient
+	command    *httputil.ReverseProxy
+	alert      *httputil.ReverseProxy
+	logger     *slog.Logger
+	mux        *chi.Mux
+	streamHub  *StreamHub
+	sseLimiter *SSEConnectionLimiter
 }
 
-func New(query *client.QueryClient, commandURL, alertURL string, logger *slog.Logger, limiter *ratelimit.Limiter, keystore *auth.CachingKeyStore, devMode bool) *Gateway {
+func New(query *client.QueryClient, cfg *config.Config, logger *slog.Logger, limiter *ratelimit.Limiter, keystore *auth.CachingKeyStore) *Gateway {
 	g := &Gateway{
 		query:  query,
 		logger: logger,
 	}
 
-	target, err := url.Parse(commandURL)
+	target, err := url.Parse(cfg.CommandHTTP)
 	if err != nil {
 		logger.Error("invalid command service URL", "error", err)
 		g.command = &httputil.ReverseProxy{}
@@ -37,7 +40,7 @@ func New(query *client.QueryClient, commandURL, alertURL string, logger *slog.Lo
 		g.command = httputil.NewSingleHostReverseProxy(target)
 	}
 
-	alertTarget, err := url.Parse(alertURL)
+	alertTarget, err := url.Parse(cfg.AlertHTTP)
 	if err != nil {
 		logger.Error("invalid alert service URL", "error", err)
 		g.alert = &httputil.ReverseProxy{}
@@ -47,26 +50,31 @@ func New(query *client.QueryClient, commandURL, alertURL string, logger *slog.Lo
 
 	g.mux = chi.NewRouter()
 
-	g.mux.Use(RecoveryMiddleware(logger))
-	g.mux.Use(LoggingMiddleware(logger))
-	g.mux.Use(TenantMiddleware(logger))
-	g.mux.Use(TenantForwardingMiddleware)
+g.mux.Use(RecoveryMiddleware(logger))
+g.mux.Use(LoggingMiddleware(logger))
+g.mux.Use(SecurityHeaders)
+if len(cfg.CORSAllowedOrigins) > 0 {
+	g.mux.Use(CORSAllowedOrigins(cfg.CORSAllowedOrigins))
+}
+g.mux.Use(TenantMiddleware(logger, cfg.DevMode))
+g.mux.Use(TenantForwardingMiddleware)
 
 	g.mux.Get("/healthz", g.healthz)
 	g.mux.Get("/healthz/alert-service", g.proxyToAlertHealth)
 	g.mux.Get("/healthz/command-service", g.proxyToCommandHealth)
 
-	authMW := auth.AuthMiddleware(keystore)
-	if devMode {
-		authMW = func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next.ServeHTTP(w, r)
-			})
-		}
-		logger.Warn("running in dev mode, auth is DISABLED")
+authMW := auth.AuthMiddleware(keystore)
+if cfg.DevMode {
+	authMW = func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+		})
 	}
+	logger.Warn("running in dev mode, auth is DISABLED")
+}
 
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/candles", g.getCandles)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/candles/export", g.exportCandles)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/indicators", g.getIndicator)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/symbols", g.listSymbols)
 
@@ -76,6 +84,11 @@ func New(query *client.QueryClient, commandURL, alertURL string, logger *slog.Lo
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/alert-rules", g.proxyToAlert)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/alert-rules/*", g.proxyToAlert)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/triggers", g.proxyToAlert)
+
+	g.sseLimiter = NewSSEConnectionLimiter(5, limiter, logger)
+	g.mux.With(authMW, g.sseLimiter.Middleware).Get("/v1/candles/stream", g.handleSSE)
+
+	g.streamHub = NewStreamHub(g, logger)
 
 	return g
 }
@@ -161,6 +174,41 @@ func (g *Gateway) listSymbols(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"symbols": nonil(symbols)})
+}
+
+func (g *Gateway) exportCandles(w http.ResponseWriter, r *http.Request) {
+	tenantID := r.Header.Get("X-Tenant-Id")
+	symbol := r.URL.Query().Get("symbol")
+	interval := r.URL.Query().Get("interval")
+	fromMs, _ := strconv.ParseInt(r.URL.Query().Get("from_ms"), 10, 64)
+	toMs, _ := strconv.ParseInt(r.URL.Query().Get("to_ms"), 10, 64)
+	format := r.URL.Query().Get("format")
+
+	if symbol == "" {
+		writeError(w, http.StatusBadRequest, "symbol is required")
+		return
+	}
+	if interval == "" {
+		interval = "1m"
+	}
+	if fromMs == 0 {
+		fromMs = time.Now().Add(-24 * time.Hour).UnixMilli()
+	}
+	if toMs == 0 {
+		toMs = time.Now().UnixMilli()
+	}
+	if format == "" {
+		format = "csv"
+	}
+
+	candles, err := g.query.GetCandles(r.Context(), tenantID, symbol, interval, fromMs, toMs)
+	if err != nil {
+		g.logger.Error("export candles failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "query service error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"candles": nonil(candles), "format": format})
 }
 
 func (g *Gateway) proxyToCommand(w http.ResponseWriter, r *http.Request) {

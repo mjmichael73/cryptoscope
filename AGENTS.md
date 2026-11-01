@@ -61,8 +61,37 @@ itself.
 ├── Dockerfile.test.python         # Python test image with dev deps
 ├── Makefile                       # all developer commands
 ├── go.work                        # Go workspace
-└── AGENTS.md                      # this file
+├── AGENTS.md                      # this file
+└── docs/
+    ├── architecture.md            # system architecture, data flow, design decisions
+    ├── DEPLOYMENT.md              # local and production deployment, env vars
+    ├── production.md              # production deployment with K8s, scaling, backup
+    ├── testing.md                 # test commands, conventions, how tests run
+    ├── SECURITY.md                # security posture, auth, known dev-mode gaps
+    ├── CONTRIBUTING.md            # how to contribute, code conventions, workflow
+    ├── roadmap.md                 # phased development roadmap
+    ├── TROUBLESHOOTING.md         # common issues and fixes
+    ├── CHANGELOG.md               # version history
+    └── adr/                       # architecture decision records
 ```
+
+## Documentation
+
+Detailed docs live in `docs/`:
+
+- **docs/architecture.md** — full system diagram, service responsibilities, data stores, design decisions
+- **docs/DEPLOYMENT.md** — local dev setup, env vars, service ports
+- **docs/production.md** — production deployment, K8s manifests, scaling, backup
+- **docs/testing.md** — test commands, conventions, writing new tests
+- **docs/security.md** — auth, multi-tenancy, rate limiting, known issues
+- **docs/CONTRIBUTING.md** — contribution workflow and code conventions
+- **docs/roadmap.md** — phased development roadmap
+- **docs/TROUBLESHOOTING.md** — common issues and fixes
+- **docs/API.md** — full REST and gRPC API reference
+- **docs/guides/usage.md** — API usage guide with curl examples
+- **docs/guides/development.md** — local dev setup, workflows, project structure
+- **docs/CHANGELOG.md** — version history
+- **docs/adr/** — architecture decision records
 
 ## Architecture
 
@@ -84,6 +113,8 @@ Exchange APIs (Binance, Coinbase)
                                                       │
                                                       └──► PostgreSQL (alert_triggers)
 ```
+
+See `docs/architecture.md` for the full breakdown.
 
 ## All Makefile commands
 

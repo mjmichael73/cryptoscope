@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cryptoscope
+
+resources:
+  - namespace.yaml
+  - secrets.yaml
+  - ingest-service.yaml
+  - stream-processor.yaml
+  - query-service.yaml
+  - command-service.yaml
+  - alert-service.yaml
+  - api-gateway.yaml
+  - network-policies.yaml
+  - network-policies-dns.yaml
+  - network-policies-ingest.yaml
+  - network-policies-processor.yaml
+  - network-policies-query.yaml
+  - network-policies-command.yaml
+  - network-policies-alert.yaml
+  - network-policies-gateway.yaml
+  - network-policies-observability.yaml
+  - network-policies-datastores.yaml
+
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize

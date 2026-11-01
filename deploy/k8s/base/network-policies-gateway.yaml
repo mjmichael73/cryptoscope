@@ -1,0 +1,87 @@
+# API-gateway egress:
+#   - query-service (gRPC 9001, HTTP 8001)
+#   - command-service (HTTP 8002)
+#   - alert-service (HTTP 8003)
+#   - Redis (rate limiting)
+#   - OTel Collector (traces)
+# Ingress:
+#   - External traffic (HTTP 8080) via Ingress controller
+#   - Prometheus scrape (metrics 9101)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-gateway
+  namespace: cryptoscope
+  labels:
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Ingress controller → api-gateway
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Prometheus scrape
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9101
+  egress:
+    # query-service (gRPC + HTTP)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: query-service
+      ports:
+        - protocol: TCP
+          port: 8001
+        - protocol: TCP
+          port: 9001
+    # command-service (HTTP)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: command-service
+      ports:
+        - protocol: TCP
+          port: 8002
+    # alert-service (HTTP)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: alert-service
+      ports:
+        - protocol: TCP
+          port: 8003
+    # Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # OTel Collector
+    - to:
+        - podSelector:
+            matchLabels:
+              app: otel-collector
+      ports:
+        - protocol: TCP
+          port: 4317

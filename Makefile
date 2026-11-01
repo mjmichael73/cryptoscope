@@ -196,3 +196,64 @@ test-libs-go: ## Run Go shared library tests
 .PHONY: test-libs-python
 test-libs-python: ## Run Python shared library tests
 	$(COMPOSE_TEST) run --rm test-libs-python
+
+
+# ── Kubernetes deployment ─────────────────────────────────────────────
+
+K8S_OVERLAY ?= overlays/production
+K8S_BASE := deploy/k8s
+
+.PHONY: k8s-build
+k8s-build: ## Build and tag Docker images for Kubernetes
+	@echo "==> building Docker images"
+	for svc in $(GO_SERVICES) $(PY_SERVICES); do \
+		echo "--- $$svc ---"; \
+		docker build -t cryptoscope/$$svc:latest -f services/$$svc/Dockerfile .; \
+	done
+	@echo "==> building frontend"
+	docker build -t cryptoscope/frontend:latest -f frontend/Dockerfile frontend/
+
+.PHONY: k8s-deploy
+k8s-deploy: ## Deploy to Kubernetes (usage: make k8s-deploy K8S_OVERLAY=overlays/production)
+	@echo "==> deploying with kustomize ($(K8S_OVERLAY))"
+	kubectl apply -k $(K8S_BASE)/$(K8S_OVERLAY)
+
+.PHONY: k8s-delete
+k8s-delete: ## Delete Kubernetes resources (usage: make k8s-delete K8S_OVERLAY=overlays/production)
+	@echo "==> deleting with kustomize ($(K8S_OVERLAY))"
+	kubectl delete -k $(K8S_BASE)/$(K8S_OVERLAY) --ignore-not-found
+
+.PHONY: k8s-diff
+k8s-diff: ## Show what kustomize would apply (dry-run)
+	@echo "==> dry-run apply ($(K8S_OVERLAY))"
+	kubectl apply -k $(K8S_BASE)/$(K8S_OVERLAY) --dry-run=client
+
+.PHONY: k8s-status
+k8s-status: ## Show status of cryptoscope pods and services
+	kubectl -n cryptoscope get pods,svc,ingress -l app.kubernetes.io/part-of=cryptoscope
+
+.PHONY: k8s-logs
+k8s-logs: ## Tail logs from all cryptoscope pods
+	kubectl -n cryptoscope logs -l app.kubernetes.io/part-of=cryptoscope --tail=100 -f
+
+.PHONY: k8s-portforward
+k8s-portforward: ## Forward api-gateway to localhost:8080
+	kubectl -n cryptoscope port-forward svc/api-gateway 8080:8080 &
+	@echo "==> api-gateway available at http://localhost:8080"
+
+.PHONY: k8s-deploy-staging
+k8s-deploy-staging: ## Deploy to staging cluster via kustomize
+	@echo "==> deploying to staging"
+	kubectl apply -k $(K8S_BASE)/overlays/staging
+	kubectl -n cryptoscope-staging rollout status deployment/api-gateway --timeout=120s
+	kubectl -n cryptoscope-staging rollout status deployment/query-service --timeout=120s
+	kubectl -n cryptoscope-staging rollout status deployment/command-service --timeout=120s
+	@echo "==> staging deploy complete"
+
+.PHONY: k8s-status-staging
+k8s-status-staging: ## Show staging cluster status
+	kubectl -n cryptoscope-staging get pods,svc,ingress
+
+.PHONY: k8s-logs-staging
+k8s-logs-staging: ## Tail logs from staging pods
+	kubectl -n cryptoscope-staging logs -l app.kubernetes.io/part-of=cryptoscope --tail=100 -f

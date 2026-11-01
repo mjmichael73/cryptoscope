@@ -1,0 +1,74 @@
+# Query-service egress:
+#   - ClickHouse (read candles)
+#   - Redis (cache)
+#   - OTel Collector (traces)
+# Ingress:
+#   - api-gateway (gRPC 9001, HTTP 8001)
+#   - Prometheus scrape (HTTP 8001)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-query-service
+  namespace: cryptoscope
+  labels:
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  podSelector:
+    matchLabels:
+      app: query-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # api-gateway → query-service (gRPC + HTTP)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8001
+        - protocol: TCP
+          port: 9001
+    # Prometheus scrape
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 8001
+  egress:
+    # ClickHouse (HTTP for queries)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: clickhouse
+      ports:
+        - protocol: TCP
+          port: 8123
+    # ClickHouse (native for batch reads)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: clickhouse
+      ports:
+        - protocol: TCP
+          port: 9000
+    # Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # OTel Collector
+    - to:
+        - podSelector:
+            matchLabels:
+              app: otel-collector
+      ports:
+        - protocol: TCP
+          port: 4317

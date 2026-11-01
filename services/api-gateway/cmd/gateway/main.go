@@ -58,6 +58,24 @@ func main() {
 		if err := keystore.Refresh(ctx); err != nil {
 			logger.Warn("initial JWKS refresh failed, continuing without auth keys", "error", err)
 		}
+
+		// Background JWKS refresh for key rotation
+		go func() {
+			ticker := time.NewTicker(15 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := keystore.Refresh(ctx); err != nil {
+						logger.Warn("JWKS refresh failed", "error", err)
+					} else {
+						logger.Debug("JWKS keys refreshed")
+					}
+				}
+			}
+		}()
 	}
 
 	queryClient, err := client.NewQueryClient(cfg.GRPCAddr)
@@ -67,7 +85,7 @@ func main() {
 	}
 	defer queryClient.Close()
 
-	gw := gateway.New(queryClient, cfg.CommandHTTP, cfg.AlertHTTP, logger, limiter, keystore, cfg.DevMode)
+	gw := gateway.New(queryClient, &cfg, logger, limiter, keystore)
 
 	httpServer := &http.Server{
 		Addr:         cfg.HTTPPort,

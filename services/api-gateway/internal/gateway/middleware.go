@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/mojimich2015/cryptoscope/libs/go/ratelimit"
 	"github.com/mojimich2015/cryptoscope/libs/go/tenant"
+	"github.com/redis/go-redis/v9"
 )
 
 type responseWriter struct {
@@ -43,15 +43,20 @@ func LoggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-func TenantMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
+func TenantMiddleware(logger *slog.Logger, devMode bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tenantID := r.Header.Get("X-Tenant-Id")
 			tenantSlug := r.Header.Get("X-Tenant-Slug")
 
 			if tenantID == "" {
-				tenantID = "demo-tenant"
-				tenantSlug = "demo"
+				if devMode {
+					tenantID = "demo-tenant"
+					tenantSlug = "demo"
+				} else {
+					http.Error(w, `{"error":"tenant ID is required"}`, http.StatusBadRequest)
+					return
+				}
 			}
 
 			ident := tenant.Identity{ID: tenantID, Slug: tenantSlug}

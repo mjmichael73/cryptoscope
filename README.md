@@ -48,7 +48,7 @@ api-gateway (Go) <---- gRPC ---- query-service (Python, read side)
 command-service (Python) --> Kafka (domain.events) --> alert-service (Python)
 ```
 
-A fuller breakdown lives in [docs/diagrams](docs/diagrams) and the decision
+A fuller breakdown lives in [docs/architecture.md](docs/architecture.md) and the decision
 records in [docs/adr](docs/adr).
 
 ## Services
@@ -91,8 +91,27 @@ make bootstrap   # seed a demo tenant and tracked symbols
 make test        # run the test suites
 ```
 
-See [docs/guides/usage.md](docs/guides/usage.md) for the API walkthrough and
-[docs/guides/development.md](docs/guides/development.md) for local development.
+See [docs/guides/development.md](docs/guides/development.md) for local development
+and [docs/guides/usage.md](docs/guides/usage.md) for API examples.
+For production deployment, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+## Documentation
+
+| Document                            | Description                                    |
+| ----------------------------------- | ---------------------------------------------- |
+| [docs/architecture.md](docs/architecture.md)       | System architecture, data flow, design decisions |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)           | Local and production deployment, env vars       |
+| [docs/production.md](docs/production.md)           | Production deployment with K8s, scaling, backup |
+| [docs/testing.md](docs/testing.md)                 | Test commands, conventions, how tests run        |
+| [docs/security.md](docs/security.md)               | Security posture, auth, known dev-mode gaps     |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)       | How to contribute, code conventions, workflow    |
+| [docs/roadmap.md](docs/roadmap.md)                 | Phased development roadmap                      |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and fixes                         |
+| [docs/API.md](docs/API.md)                         | Full REST + gRPC API reference                   |
+| [docs/guides/usage.md](docs/guides/usage.md)       | API usage guide with curl examples               |
+| [docs/guides/development.md](docs/guides/development.md) | Local dev setup, workflows, project structure |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md)             | Version history                                 |
+| [docs/adr/](docs/adr/)                             | Architecture decision records                   |
 
 ## Repository layout
 
@@ -103,6 +122,7 @@ libs/        shared Go and Python packages (config, logging, otel, kafka)
 deploy/      Docker Compose, Kubernetes manifests, observability configs
 migrations/  database migrations per owning service
 docs/        architecture decision records, diagrams, and guides
+frontend/    React + TypeScript SPA (Vite, Tailwind, Recharts)
 ```
 
 ## License

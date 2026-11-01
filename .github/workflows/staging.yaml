@@ -1,0 +1,295 @@
+# Build, push, and deploy to the staging cluster.
+#
+# Triggers:
+#   - Push to main (auto-deploy)
+#   - Manual dispatch (with optional image tag override)
+#
+# Prerequisites (GitHub repo secrets):
+#   STAGING_KUBECONFIG   — base64-encoded kubeconfig for the staging cluster
+#   STAGING_CLUSTER_NAME  — name of the k8s context (default: staging)
+#
+# The workflow:
+#   1. Runs Go + Python lint and tests
+#   2. Builds and pushes all 6 service images + frontend to GHCR
+#   3. Deploys to the staging cluster via kustomize
+#   4. Runs a smoke test to verify the deployment is healthy
+
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (default: commit SHA)"
+        required: false
+        default: ""
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  GO_VERSION: "1.25"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ── Quality gate ──────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Lint Go
+        run: |
+          for dir in services/ingest-service services/stream-processor services/api-gateway; do
+            (cd $dir && test -z "$(gofmt -l .)" || (echo "unformatted files in $dir" && exit 1))
+            (cd $dir && go vet ./...) || exit 1
+          done
+          (cd libs/go && test -z "$(gofmt -l .)" || (echo "unformatted files in libs/go" && exit 1))
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Lint Python
+        run: |
+          pip install ruff mypy
+          for dir in services/query-service services/command-service services/alert-service; do
+            (cd $dir && ruff check .) || exit 1
+          done
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Test Go
+        run: |
+          for dir in libs/go services/ingest-service services/stream-processor services/api-gateway; do
+            (cd $dir && go test ./... -count=1) || exit 1
+          done
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Test Python
+        run: |
+          pip install libs/python
+          for dir in services/query-service services/command-service services/alert-service; do
+            (cd $dir && pip install ".[dev]" && python -m pytest -v) || exit 1
+          done
+
+  # ── Build and push images ─────────────────────────────────────────────
+  build:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service:
+          - ingest-service
+          - stream-processor
+          - api-gateway
+          - command-service
+          - query-service
+          - alert-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tag
+        id: tag
+        run: |
+          TAG="${{ inputs.image_tag || github.sha }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.service }}:${{ steps.tag.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.service }}:staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-frontend:
+    name: Build & Push Frontend
+    runs-on: ubuntu-latest
+    needs: [lint]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tag
+        id: tag
+        run: |
+          TAG="${{ inputs.image_tag || github.sha }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/frontend:${{ steps.tag.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/frontend:staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Deploy to staging ─────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build, build-frontend]
+    environment:
+      name: staging
+      url: https://staging.cryptoscope.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: tag
+        run: |
+          TAG="${{ inputs.image_tag || github.sha }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Install kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Update image tags in kustomize
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          OVERLAY_DIR="deploy/k8s/overlays/staging"
+
+          # Patch each deployment to use the new image tag
+          for svc in ingest-service stream-processor api-gateway command-service query-service alert-service frontend; do
+            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${svc}:${TAG}"
+
+            cat > /tmp/image-patch-${svc}.yaml << EOF
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: ${svc}
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: ${svc}
+                    image: ${IMAGE}
+          EOF
+
+            # Add the patch to the overlay kustomization
+            if ! grep -q "image-patch-${svc}" "${OVERLAY_DIR}/kustomization.yaml" 2>/dev/null; then
+              cat >> "${OVERLAY_DIR}/kustomization.yaml" << EOF
+
+          patches:
+            - target:
+                kind: Deployment
+                name: ${svc}
+              path: /tmp/image-patch-${svc}.yaml
+          EOF
+            fi
+          done
+
+      - name: Deploy to staging
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          echo "==> deploying tag ${TAG} to staging"
+
+          # Apply namespace and secrets first
+          kubectl apply -f deploy/k8s/base/namespace.yaml
+          kubectl apply -f deploy/k8s/base/secrets.yaml
+
+          # Deploy with kustomize
+          kustomize build deploy/k8s/overlays/staging | kubectl apply -f -
+
+          # Wait for rollouts
+          kubectl -n cryptoscope-staging rollout status deployment/api-gateway --timeout=120s
+          kubectl -n cryptoscope-staging rollout status deployment/query-service --timeout=120s
+          kubectl -n cryptoscope-staging rollout status deployment/command-service --timeout=120s
+          kubectl -n cryptoscope-staging rollout status deployment/alert-service --timeout=120s
+          kubectl -n cryptoscope-staging rollout status deployment/ingest-service --timeout=120s
+          kubectl -n cryptoscope-staging rollout status deployment/stream-processor --timeout=120s
+
+      - name: Smoke test
+        run: |
+          echo "==> waiting for pods to be ready"
+          kubectl -n cryptoscope-staging wait --for=condition=Ready pods --all --timeout=180s
+
+          echo "==> checking gateway health"
+          # Port-forward in background
+          kubectl -n cryptoscope-staging port-forward svc/api-gateway 18080:8080 &
+          PF_PID=$!
+          sleep 5
+
+          # Health check
+          for i in $(seq 1 10); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:18080/healthz || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "==> gateway healthy (attempt $i)"
+              break
+            fi
+            echo "waiting for gateway... (attempt $i, status=$STATUS)"
+            sleep 3
+          done
+
+          kill $PF_PID 2>/dev/null || true
+
+          if [ "$STATUS" != "200" ]; then
+            echo "ERROR: gateway health check failed"
+            kubectl -n cryptoscope-staging get pods
+            kubectl -n cryptoscope-staging logs -l app=api-gateway --tail=50
+            exit 1
+          fi
+
+          echo "==> staging deployment successful"
+
+      - name: Post-deploy status
+        if: always()
+        run: |
+          echo "=== Pods ==="
+          kubectl -n cryptoscope-staging get pods -o wide
+          echo ""
+          echo "=== Services ==="
+          kubectl -n cryptoscope-staging get svc
+          echo ""
+          echo "=== Events (recent) ==="
+          kubectl -n cryptoscope-staging get events --sort-by='.lastTimestamp' | tail -20

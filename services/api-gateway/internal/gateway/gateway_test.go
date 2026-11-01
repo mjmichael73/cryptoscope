@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/mojimich2015/cryptoscope/services/api-gateway/internal/config"
 )
 
 func TestHealthz(t *testing.T) {
@@ -50,7 +51,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 func TestTenantMiddlewareFillsDefault(t *testing.T) {
 	var buf strings.Builder
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	handler := TenantMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := TenantMiddleware(logger, true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -69,7 +70,7 @@ func TestTenantMiddlewareFillsDefault(t *testing.T) {
 func TestTenantMiddlewarePassesExisting(t *testing.T) {
 	var buf strings.Builder
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	handler := TenantMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := TenantMiddleware(logger, false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -167,7 +168,7 @@ func TestWriteError(t *testing.T) {
 func TestGetCandlesReturnsBadRequestWhenSymbolMissing(t *testing.T) {
 	gw := newTestGateway()
 	mux := chi.NewRouter()
-	mux.Use(TenantMiddleware(gw.logger))
+	mux.Use(TenantMiddleware(gw.logger, false))
 	mux.Get("/v1/candles", gw.getCandles)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/candles", nil)
@@ -184,7 +185,7 @@ func TestGetCandlesDefaultsInterval(t *testing.T) {
 	gw := newTestGateway()
 	mux := chi.NewRouter()
 	mux.Use(RecoveryMiddleware(gw.logger))
-	mux.Use(TenantMiddleware(gw.logger))
+	mux.Use(TenantMiddleware(gw.logger, false))
 	mux.Get("/v1/candles", gw.getCandles)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/candles?symbol=BTCUSDT", nil)
@@ -201,7 +202,7 @@ func TestGetCandlesDefaultsInterval(t *testing.T) {
 func TestGetIndicatorReturnsBadRequestWhenSymbolMissing(t *testing.T) {
 	gw := newTestGateway()
 	mux := chi.NewRouter()
-	mux.Use(TenantMiddleware(gw.logger))
+	mux.Use(TenantMiddleware(gw.logger, false))
 	mux.Get("/v1/indicators", gw.getIndicator)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/indicators", nil)
@@ -217,7 +218,7 @@ func TestGetIndicatorReturnsBadRequestWhenSymbolMissing(t *testing.T) {
 func TestGetIndicatorReturnsBadRequestWhenTypeMissing(t *testing.T) {
 	gw := newTestGateway()
 	mux := chi.NewRouter()
-	mux.Use(TenantMiddleware(gw.logger))
+	mux.Use(TenantMiddleware(gw.logger, false))
 	mux.Get("/v1/indicators", gw.getIndicator)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/indicators?symbol=BTCUSDT", nil)
@@ -234,7 +235,7 @@ func TestListSymbolsReturns500WithNilClient(t *testing.T) {
 	gw := newTestGateway()
 	mux := chi.NewRouter()
 	mux.Use(RecoveryMiddleware(gw.logger))
-	mux.Use(TenantMiddleware(gw.logger))
+	mux.Use(TenantMiddleware(gw.logger, false))
 	mux.Get("/v1/symbols", gw.listSymbols)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/symbols", nil)
@@ -256,8 +257,17 @@ func TestNewRedisClient(t *testing.T) {
 	defer client.Close()
 }
 
+func newSlog(buf *strings.Builder) *slog.Logger {
+	return slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
+
 func newTestGateway() *Gateway {
 	var buf strings.Builder
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	return New(nil, "http://localhost:18002", "http://localhost:18003", logger, nil, nil, true)
+	cfg := &config.Config{
+		DevMode:     true,
+		CommandHTTP: "http://localhost:18002",
+		AlertHTTP:   "http://localhost:18003",
+	}
+	return New(nil, cfg, logger, nil, nil)
 }

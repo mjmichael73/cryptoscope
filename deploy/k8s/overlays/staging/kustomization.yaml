@@ -1,0 +1,165 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cryptoscope-staging
+
+resources:
+  - ../../base
+
+namePrefix: staging-
+
+# Staging overrides: minimal replicas, DEV_MODE enabled, relaxed limits
+patches:
+  # Scale down to minimal replicas for staging
+  - target:
+      kind: Deployment
+      name: api-gateway
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: api-gateway
+      spec:
+        replicas: 1
+
+  - target:
+      kind: Deployment
+      name: query-service
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: query-service
+      spec:
+        replicas: 1
+
+  - target:
+      kind: Deployment
+      name: command-service
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: command-service
+      spec:
+        replicas: 1
+
+  - target:
+      kind: Deployment
+      name: alert-service
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: alert-service
+      spec:
+        replicas: 1
+
+  - target:
+      kind: Deployment
+      name: ingest-service
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ingest-service
+      spec:
+        replicas: 1
+
+  - target:
+      kind: Deployment
+      name: stream-processor
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: stream-processor
+      spec:
+        replicas: 1
+
+  # Enable DEV_MODE for staging (no Keycloak required)
+  - target:
+      kind: Deployment
+      name: api-gateway
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: api-gateway
+      spec:
+        template:
+          spec:
+            containers:
+              - name: api-gateway
+                env:
+                  - name: DEV_MODE
+                    value: "true"
+                  - name: LOG_LEVEL
+                    value: "debug"
+                  - name: RATE_LIMIT_REQUESTS_PER_MINUTE
+                    value: "60"
+                  - name: RATE_LIMIT_BURST
+                    value: "20"
+
+  # Relaxed resource limits for staging
+  - target:
+      kind: Deployment
+      name: ingest-service
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ingest-service
+      spec:
+        template:
+          spec:
+            containers:
+              - name: ingest-service
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    cpu: 250m
+                    memory: 128Mi
+
+  - target:
+      kind: Deployment
+      name: stream-processor
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: stream-processor
+      spec:
+        template:
+          spec:
+            containers:
+              - name: stream-processor
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 128Mi
+                  limits:
+                    cpu: 500m
+                    memory: 256Mi
+
+  # Reduce poll interval for faster feedback in staging
+  - target:
+      kind: Deployment
+      name: ingest-service
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ingest-service
+      spec:
+        template:
+          spec:
+            containers:
+              - name: ingest-service
+                env:
+                  - name: INGEST_POLL_INTERVAL_SECONDS
+                    value: "30"
+                  - name: INGEST_SYMBOLS
+                    value: "BTCUSDT,ETHUSDT"

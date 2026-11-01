@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.models import AlertRule, AlertRuleStatus, Comparator
 from app.infra.db import AlertRuleModel, AlertTriggerModel
+from app.infra.notify import NotificationDispatcher, TriggerPayload
 
 
 class AlertEngine:
@@ -21,12 +22,14 @@ class AlertEngine:
         alerts_topic: str,
         session_factory: async_sessionmaker[AsyncSession],
         logger: Any,
+        dispatcher: NotificationDispatcher | None = None,
     ):
         self._consumer = consumer
         self._producer = producer
         self._alerts_topic = alerts_topic
         self._session_factory = session_factory
         self._logger = logger
+        self._dispatcher = dispatcher or NotificationDispatcher()
 
     async def run(self) -> None:
         self._logger.info("alert engine starting")
@@ -141,3 +144,21 @@ class AlertEngine:
             value=current_value,
             threshold=rule.threshold,
         )
+
+        # Dispatch to notification channels (best-effort)
+        try:
+            payload = TriggerPayload(
+                trigger_id=trigger_id,
+                tenant_id=tenant_id,
+                rule_id=rule.id,
+                symbol=rule.symbol,
+                comparator=rule.comparator.value,
+                threshold=rule.threshold,
+                current_value=current_value,
+                triggered_at=now.isoformat(),
+            )
+            results = self._dispatcher.dispatch(payload)
+            if results:
+                self._logger.info("notifications dispatched", results=results)
+        except Exception:
+            self._logger.exception("notification dispatch failed")

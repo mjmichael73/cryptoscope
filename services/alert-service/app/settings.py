@@ -17,6 +17,19 @@ class Settings(BaseServiceSettings):
 
     http_port: int = Field(default=8003, alias="ALERT_SERVICE_HTTP_PORT")
 
+    # Notification channels (all optional — empty means notifications disabled)
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str = Field(default="", alias="SMTP_USERNAME")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
+    smtp_from: str = Field(default="", alias="SMTP_FROM")
+    smtp_to: str = Field(default="", alias="SMTP_TO")  # comma-separated
+
+    slack_webhook_url: str = Field(default="", alias="SLACK_WEBHOOK_URL")
+
+    webhook_url: str = Field(default="", alias="ALERT_WEBHOOK_URL")
+    webhook_auth_header: str = Field(default="", alias="ALERT_WEBHOOK_AUTH")
+
     @property
     def sqlalchemy_dsn(self) -> str:
         dsn = self.postgres_dsn

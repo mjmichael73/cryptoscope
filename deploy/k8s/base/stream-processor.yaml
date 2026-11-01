@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stream-processor
+  namespace: cryptoscope
+  labels:
+    app: stream-processor
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stream-processor
+  template:
+    metadata:
+      labels:
+        app: stream-processor
+    spec:
+      containers:
+        - name: stream-processor
+          image: cryptoscope/stream-processor:latest
+          ports:
+            - containerPort: 9100
+              name: metrics
+          env:
+            - name: LOG_LEVEL
+              value: "info"
+            - name: KAFKA_BROKERS
+              value: "kafka:9092"
+            - name: KAFKA_TOPIC_TICKS
+              value: "market.ticks.raw"
+            - name: KAFKA_TOPIC_EVENTS
+              value: "domain.events"
+            - name: KAFKA_CONSUMER_GROUP
+              value: "cryptoscope"
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: cryptoscope-secrets
+                  key: MONGO_URI
+            - name: MONGO_DB
+              value: "cryptoscope"
+            - name: CLICKHOUSE_ADDR
+              value: "clickhouse:9000"
+            - name: CLICKHOUSE_DB
+              value: "cryptoscope"
+            - name: CLICKHOUSE_USER
+              value: "cryptoscope"
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cryptoscope-secrets
+                  key: CLICKHOUSE_PASSWORD
+            - name: TENANT_ID
+              value: "prod-tenant"
+            - name: INTERVALS
+              value: "1m,5m,1h,1d"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_SERVICE_NAMESPACE
+              value: "cryptoscope"
+            - name: PROMETHEUS_METRICS_PORT
+              value: "9100"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9100
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stream-processor
+  namespace: cryptoscope
+  labels:
+    app: stream-processor
+spec:
+  selector:
+    app: stream-processor
+  ports:
+    - port: 9100
+      targetPort: 9100
+      name: metrics

@@ -1,0 +1,15 @@
+# Default deny-all policy: no pod can talk to any other pod unless explicitly
+# allowed by a subsequent policy.  This is the foundation of a zero-trust
+# network posture inside the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: cryptoscope
+  labels:
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

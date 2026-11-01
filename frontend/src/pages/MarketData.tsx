@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { client } from "../api/client";
 import CandleChart from "../components/CandleChart";
 import IndicatorChart from "../components/IndicatorChart";
+import { downloadBlob, useCandleStream } from "../hooks/useCandleStream";
 import type { Candle, IndicatorPoint } from "../types";
 
 const INTERVALS = ["1m", "5m", "1h", "1d"];
@@ -15,8 +16,9 @@ export default function MarketData() {
   const [symbols, setSymbols] = useState<string[]>([]);
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [interval_, setInterval_] = useState("1h");
-  const [candles, setCandles] = useState<Candle[]>([]);
   const [loadingCandles, setLoadingCandles] = useState(false);
+  const [initialCandles, setInitialCandles] = useState<Candle[]>([]);
+  const { candles, connected } = useCandleStream(symbol, interval_, initialCandles);
   const [indicators, setIndicators] = useState<
     { type: string; points: IndicatorPoint[]; color: string }[]
   >([]);
@@ -35,13 +37,25 @@ export default function MarketData() {
     setError(null);
     try {
       const r = await client.getCandles(symbol, interval_);
-      setCandles(r.candles);
+      setInitialCandles(r.candles);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to load candles");
     } finally {
       setLoadingCandles(false);
     }
   }, [symbol, interval_]);
+
+  const handleExport = useCallback(
+    async (format: "csv" | "json") => {
+      try {
+        const blob = await client.exportCandles(symbol, interval_, format);
+        downloadBlob(blob, `${symbol}_${interval_}_candles.${format}`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "failed to export");
+      }
+    },
+    [symbol, interval_],
+  );
 
   const loadIndicators = useCallback(async () => {
     setLoadingIndicators(true);
@@ -114,6 +128,20 @@ export default function MarketData() {
             ))}
           </div>
         </div>
+        <div className="ml-auto flex items-end gap-1">
+          <button
+            onClick={() => handleExport("csv")}
+            className="px-3 py-1.5 rounded text-xs font-medium bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={() => handleExport("json")}
+            className="px-3 py-1.5 rounded text-xs font-medium bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
+          >
+            Export JSON
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -123,9 +151,20 @@ export default function MarketData() {
       )}
 
       <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-        <h3 className="text-sm font-medium text-gray-300 mb-3">
-          Candles — {symbol} ({interval_})
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium text-gray-300">
+            Candles — {symbol} ({interval_})
+          </h3>
+          <span
+            className={`text-[11px] px-2 py-0.5 rounded-full ${
+              connected
+                ? "bg-green-900/40 text-green-400"
+                : "bg-gray-800 text-gray-500"
+            }`}
+          >
+            {connected ? "● Live" : "○ Offline"}
+          </span>
+        </div>
         {loadingCandles ? (
           <div className="flex h-64 items-center justify-center text-gray-500">
             Loading...

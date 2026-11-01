@@ -6,8 +6,13 @@ result for the wire. Query parameter validation errors map to 422.
 
 from __future__ import annotations
 
+import csv
+import io
+import json
+from datetime import datetime, timezone
+
 from cryptoscope_shared.tenant import TenantIdentity
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.api.deps import require_tenant
 from app.api.schemas import CandleOut, IndicatorPointOut, SymbolsOut
@@ -76,3 +81,61 @@ async def list_symbols(
 ) -> SymbolsOut:
     symbols = await _service(request).list_symbols(tenant.id)
     return SymbolsOut(symbols=symbols)
+
+
+@router.get("/candles/export")
+async def export_candles(
+    request: Request,
+    symbol: str = Query(min_length=1),
+    interval: str = Query(default="1m"),
+    from_ms: int = Query(default=0),
+    to_ms: int = Query(default=2**63 - 1),
+    fmt: str = Query(default="csv", alias="format"),
+    tenant: TenantIdentity = Depends(require_tenant),
+) -> Response:
+    try:
+        candles = await _service(request).get_candles(
+            tenant.id, symbol, interval, from_ms, to_ms
+        )
+    except ValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    if fmt == "json":
+        payload = [
+            {
+                "open_time_ms": c.open_time_ms,
+                "open_time": datetime.fromtimestamp(
+                    c.open_time_ms / 1000, tz=timezone.utc
+                ).isoformat(),
+                "open": c.open,
+                "high": c.high,
+                "low": c.low,
+                "close": c.close,
+                "volume": c.volume,
+            }
+            for c in candles
+        ]
+        return Response(
+            content=json.dumps(payload, indent=2),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{symbol}_{interval}_candles.json"'
+            },
+        )
+
+    # Default: CSV
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "open_time_ms", "open_time", "open", "high", "low", "close", "volume",
+    ])
+    for c in candles:
+        ts = datetime.fromtimestamp(c.open_time_ms / 1000, tz=timezone.utc).isoformat()
+        writer.writerow([c.open_time_ms, ts, c.open, c.high, c.low, c.close, c.volume])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{symbol}_{interval}_candles.csv"'
+        },
+    )

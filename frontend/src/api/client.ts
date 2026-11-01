@@ -89,4 +89,16 @@ export const client = {
     if (tenantId) p.set("tenant_id", tenantId);
     return alertApi(`/v1/triggers?${p}`);
   },
+
+  exportCandles(
+    symbol: string,
+    interval: string,
+    format: "csv" | "json",
+  ): Promise<Blob> {
+    const p = new URLSearchParams({ symbol, interval, format });
+    return fetch(`${GATEWAY}/v1/candles/export?${p}`).then((res) => {
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      return res.blob();
+    });
+  },
 };

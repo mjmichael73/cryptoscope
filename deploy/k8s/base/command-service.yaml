@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: command-service
+  namespace: cryptoscope
+  labels:
+    app: command-service
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: command-service
+  template:
+    metadata:
+      labels:
+        app: command-service
+    spec:
+      initContainers:
+        - name: migrate
+          image: cryptoscope/command-service:latest
+          command: ["alembic", "upgrade", "head"]
+          env:
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: cryptoscope-secrets
+                  key: POSTGRES_DSN
+      containers:
+        - name: command-service
+          image: cryptoscope/command-service:latest
+          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+          ports:
+            - containerPort: 8002
+              name: http
+          env:
+            - name: LOG_LEVEL
+              value: "info"
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: cryptoscope-secrets
+                  key: POSTGRES_DSN
+            - name: KAFKA_BROKERS
+              value: "kafka:9092"
+            - name: KAFKA_TOPIC_EVENTS
+              value: "domain.events"
+            - name: COMMAND_SERVICE_HTTP_PORT
+              value: "8002"
+            - name: REDIS_ADDR
+              value: "redis:6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cryptoscope-secrets
+                  key: REDIS_PASSWORD
+                  optional: true
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_SERVICE_NAMESPACE
+              value: "cryptoscope"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8002
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: command-service
+  namespace: cryptoscope
+  labels:
+    app: command-service
+spec:
+  selector:
+    app: command-service
+  ports:
+    - port: 8002
+      targetPort: 8002
+      name: http
