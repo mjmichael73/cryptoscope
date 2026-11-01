@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,9 +21,11 @@ type Config struct {
 	CommandHTTP string
 	AlertHTTP   string
 
-	RedisAddr     string
-	RedisPassword string
-	RedisDB       int
+	RedisAddr         string
+	RedisPassword     string
+	RedisPasswordFile bool
+	RedisDB           int
+	RedisTLS          bool
 
 	JWKSURL  string
 	Issuer   string
@@ -46,9 +50,11 @@ func Load() Config {
 		CommandHTTP: shared.Getenv("COMMAND_SERVICE_HTTP_ADDR", "http://localhost:8002"),
 		AlertHTTP:   shared.Getenv("ALERT_SERVICE_HTTP_ADDR", "http://localhost:8003"),
 
-		RedisAddr:     shared.Getenv("REDIS_ADDR", "localhost:6379"),
-		RedisPassword: shared.Getenv("REDIS_PASSWORD", ""),
-		RedisDB:       shared.GetenvInt("REDIS_DB", 0),
+		RedisAddr:         shared.Getenv("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:     shared.GetenvSecret("REDIS_PASSWORD", ""),
+		RedisPasswordFile: strings.TrimSpace(os.Getenv("REDIS_PASSWORD_FILE")) != "",
+		RedisDB:           shared.GetenvInt("REDIS_DB", 0),
+		RedisTLS:          ParseBoolEnv(shared.Getenv("REDIS_TLS_ENABLED", "false")),
 
 		DevMode: shared.Getenv("DEV_MODE", "false") == "true",
 
@@ -70,6 +76,14 @@ func Load() Config {
 // JWT verification impossible. Development mode is only permitted outside
 // explicitly production environments.
 func (c Config) Validate(environment string) error {
+	if strings.EqualFold(strings.TrimSpace(environment), "production") {
+		if !c.RedisPasswordFile || strings.TrimSpace(c.RedisPassword) == "" {
+			return fmt.Errorf("REDIS_PASSWORD_FILE is required in production")
+		}
+		if !c.RedisTLS {
+			return fmt.Errorf("REDIS_TLS_ENABLED must be true in production")
+		}
+	}
 	if strings.EqualFold(strings.TrimSpace(environment), "production") && c.DevMode {
 		return fmt.Errorf("DEV_MODE must be disabled in production")
 	}
@@ -95,6 +109,13 @@ func (c Config) Validate(environment string) error {
 		return fmt.Errorf("KEYCLOAK_ISSUER must be an absolute HTTP(S) URL")
 	}
 	return nil
+}
+
+// ParseBoolEnv is a strict helper for boolean environment settings. Invalid
+// values are false so production validation fails closed.
+func ParseBoolEnv(value string) bool {
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	return err == nil && parsed
 }
 
 func (c *Config) RateLimitRefresh() time.Duration {

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -250,11 +251,23 @@ func TestListSymbolsReturns500WithNilClient(t *testing.T) {
 }
 
 func TestNewRedisClient(t *testing.T) {
-	client := NewRedisClient("localhost:6379", "", 0)
+	client := NewRedisClient("localhost:6379", "", 0, false)
 	if client == nil {
 		t.Fatal("expected non-nil redis client")
 	}
+	if client.Options().TLSConfig != nil {
+		t.Fatal("expected local Redis client to omit TLS by default")
+	}
 	defer client.Close()
+
+	tlsClient := NewRedisClient("redis.example:6379", "secret", 2, true)
+	defer tlsClient.Close()
+	if tlsClient.Options().Password != "secret" || tlsClient.Options().DB != 2 {
+		t.Fatal("expected Redis AUTH credentials and database to be configured")
+	}
+	if tlsClient.Options().TLSConfig == nil || tlsClient.Options().TLSConfig.MinVersion != tls.VersionTLS12 {
+		t.Fatal("expected TLS 1.2 or newer for production Redis client")
+	}
 }
 
 func newSlog(buf *strings.Builder) *slog.Logger {

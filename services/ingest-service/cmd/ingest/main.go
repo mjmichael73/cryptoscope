@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,6 +26,11 @@ import (
 func main() {
 	cfg := config.Load()
 	logger := logging.New("ingest-service", cfg.LogLevel)
+	environment := os.Getenv("CRYPTOSCOPE_ENV")
+	if err := cfg.Validate(environment); err != nil {
+		logger.Error("invalid ingest configuration", "error", err)
+		os.Exit(1)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -52,11 +58,15 @@ func main() {
 	}()
 	defer metricsServer.Close()
 
-	redisClient := redis.NewClient(&redis.Options{
+	redisOptions := &redis.Options{
 		Addr:     cfg.RedisAddr,
 		Password: cfg.RedisPassword,
 		DB:       cfg.RedisDB,
-	})
+	}
+	if cfg.RedisTLS {
+		redisOptions.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	redisClient := redis.NewClient(redisOptions)
 	defer redisClient.Close()
 
 	deduper := idempotency.NewStore(redisClient, "ingest:dedupe", 24*time.Hour)

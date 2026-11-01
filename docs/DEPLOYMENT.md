@@ -108,6 +108,10 @@ All configuration is done via environment variables. See `.env.example` for the 
 | `GRAFANA_ADMIN_PASSWORD`    | local Compose    | Local Grafana admin password               |
 | `CLICKHOUSE_HOST`           | query-service    | ClickHouse host                          |
 | `REDIS_ADDR`                | gateway, ingest  | Redis address                            |
+| `REDIS_PASSWORD`            | gateway, ingest  | Local Redis AUTH password                 |
+| `REDIS_PASSWORD_FILE`       | gateway, ingest  | Redis AUTH secret file; required in production |
+| `REDIS_TLS_ENABLED`         | gateway, ingest  | Enable verified TLS; required in production   |
+| `CRYPTOSCOPE_ENV`           | gateway, ingest  | Set to `production` to require Redis AUTH/TLS |
 | `LOG_LEVEL`                 | all              | `debug`, `info`, `warn`, `error`        |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | gateway    | Rate limit per tenant per minute         |
 | `SMTP_HOST`                | alert-service  | SMTP server for email notifications      |

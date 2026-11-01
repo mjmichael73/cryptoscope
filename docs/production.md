@@ -43,6 +43,12 @@ and configure the matching `*_FILE` variable to that path (including both
 `CLICKHOUSE_USER_FILE` and `CLICKHOUSE_PASSWORD_FILE`). Mount the directory
 read-only and restrict file permissions to the service user. For local
 development, omit `CRYPTOSCOPE_ENV=production` and use `.env` values.
+Redis must be provided by a managed service or operator configured for AUTH and
+TLS. Set `REDIS_PASSWORD_FILE` to the mounted Redis password and
+`REDIS_TLS_ENABLED=true` for both `api-gateway` and `ingest-service`; both
+services reject production startup without a password and TLS. The Redis TLS
+client verifies the server certificate using the container's system trust
+store, so install the issuing CA in the image when using a private CA.
 
 ### api-gateway
 
@@ -56,6 +62,8 @@ QUERY_SERVICE_GRPC_ADDR=query-service:9001
 COMMAND_SERVICE_HTTP_ADDR=http://command-service:8002
 ALERT_SERVICE_HTTP_ADDR=http://alert-service:8003
 REDIS_ADDR=redis-cluster:6379
+REDIS_PASSWORD_FILE=/run/secrets/redis_password
+REDIS_TLS_ENABLED=true
 RATE_LIMIT_REQUESTS_PER_MINUTE=120
 RATE_LIMIT_BURST=40
 ```
@@ -66,6 +74,8 @@ RATE_LIMIT_BURST=40
 KAFKA_BROKERS=kafka-0:9093,kafka-1:9093,kafka-2:9093
 KAFKA_TOPIC_TICKS=market.ticks.raw
 REDIS_ADDR=redis-cluster:6379
+REDIS_PASSWORD_FILE=/run/secrets/redis_password
+REDIS_TLS_ENABLED=true
 BINANCE_BASE_URL=https://api.binance.com
 COINBASE_BASE_URL=https://api.exchange.coinbase.com
 INGEST_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT

@@ -17,7 +17,7 @@ Priority: critical. The dev stack bypasses authentication and uses hardcoded cre
 - [ ] Disable `DEV_MODE` in production and complete Keycloak JWT validation
 - [ ] Move all database credentials to a secrets manager (Vault or cloud)
 - [ ] Remove hardcoded passwords from `docker-compose.yml` (keep for local dev only)
-- [ ] Enable Redis AUTH and TLS in production config
+- [x] Enable Redis AUTH and TLS in production config
 - [ ] Add CORS restrictions to the gateway for production origins
 - [ ] Enable TLS for Kafka (SASL_SSL) in production manifests
 

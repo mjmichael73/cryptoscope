@@ -55,6 +55,39 @@ func TestValidateRejectsInvalidJWKSURL(t *testing.T) {
 	}
 }
 
+func TestValidateRedisProductionRequirements(t *testing.T) {
+	cfg := Config{
+		RedisPassword:     "secret",
+		RedisPasswordFile: true,
+		JWKSURL:           "https://keycloak.example/keys",
+		Issuer:            "https://keycloak.example/realm",
+		Audience:          "cryptoscope",
+	}
+	if err := cfg.Validate("production"); err == nil {
+		t.Fatal("expected production Redis TLS to be required")
+	}
+	cfg.RedisTLS = true
+	cfg.RedisPasswordFile = false
+	if err := cfg.Validate("production"); err == nil {
+		t.Fatal("expected production Redis password to come from a secret file")
+	}
+	cfg.RedisPasswordFile = true
+	if err := cfg.Validate("production"); err != nil {
+		t.Fatalf("expected secure Redis config to validate, got %v", err)
+	}
+}
+
+func TestParseBoolEnv(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{{"true", true}, {"TRUE", true}, {"1", true}, {"false", false}, {"invalid", false}} {
+		if got := ParseBoolEnv(tc.value); got != tc.want {
+			t.Errorf("ParseBoolEnv(%q) = %t, want %t", tc.value, got, tc.want)
+		}
+	}
+}
+
 func TestLoadFromEnv(t *testing.T) {
 	os.Setenv("API_GATEWAY_HTTP_PORT", "9090")
 	os.Setenv("QUERY_SERVICE_GRPC_ADDR", "query:9001")

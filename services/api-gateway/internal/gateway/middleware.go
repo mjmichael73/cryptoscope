@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -110,12 +111,16 @@ func TenantForwardingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func NewRedisClient(addr, password string, db int) *redis.Client {
-	return redis.NewClient(&redis.Options{
+func NewRedisClient(addr, password string, db int, tlsEnabled bool) *redis.Client {
+	options := &redis.Options{
 		Addr:     addr,
 		Password: password,
 		DB:       db,
-	})
+	}
+	if tlsEnabled {
+		options.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	return redis.NewClient(options)
 }
 
 func RecoveryMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {

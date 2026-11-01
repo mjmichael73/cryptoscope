@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,9 +22,16 @@ import (
 func main() {
 	cfg := config.Load()
 	logger := logging.New("api-gateway", cfg.LogLevel)
-	environment := os.Getenv("APP_ENV")
-	if environment == "" {
-		environment = os.Getenv("ENVIRONMENT")
+	environment := "development"
+	for _, key := range []string{"APP_ENV", "ENVIRONMENT", "CRYPTOSCOPE_ENV"} {
+		value := strings.TrimSpace(os.Getenv(key))
+		if strings.EqualFold(value, "production") {
+			environment = "production"
+			break
+		}
+		if value != "" && environment == "development" {
+			environment = value
+		}
 	}
 	if err := cfg.Validate(environment); err != nil {
 		logger.Error("invalid gateway configuration", "error", err)
@@ -56,7 +64,7 @@ func main() {
 	}()
 	defer metricsServer.Close()
 
-	redisClient := gateway.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	redisClient := gateway.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.RedisTLS)
 	defer redisClient.Close()
 
 	limiter := ratelimit.New(redisClient, cfg.RateLimitPerMinute, cfg.RateLimitBurst)
