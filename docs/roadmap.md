@@ -25,13 +25,13 @@ Priority: critical. The dev stack bypasses authentication and uses hardcoded cre
 
 Get the platform deployable to a real cluster.
 
-- [ ] Create Kubernetes manifests for all 6 services (`deploy/k8s/`)
-- [ ] Add resource requests/limits and HPA scaling rules
-- [ ] Implement readiness and liveness probes on all services
-- [ ] Add a `docker-compose.prod.yml` for Docker Swarm as a simpler alternative
-- [ ] Set up Fluent Bit or similar for log shipping to Elasticsearch/Loki
-- [ ] Create a Helm chart or Kustomize overlay for environment-specific config
-- [ ] Document the production deployment steps in `docs/DEPLOYMENT.md`
+- [x] Create Kubernetes manifests for all 6 services (`deploy/k8s/`)
+- [x] Add resource requests/limits and HPA scaling rules
+- [x] Implement readiness and liveness probes on all services
+- [x] Add a `docker-compose.prod.yml` for Docker Swarm as a simpler alternative
+- [x] Set up Fluent Bit or similar for log shipping to Elasticsearch/Loki
+- [x] Create a Helm chart or Kustomize overlay for environment-specific config
+- [x] Document the production deployment steps in `docs/DEPLOYMENT.md`
 
 ## Phase 3 — Expanded analytics 🟡
 
@@ -81,10 +81,10 @@ Operational maturity for running in production.
 
 | Metric                    | Target           | Current          |
 | ------------------------- | ---------------- | ---------------- |
-| Auth in production        | Keycloak JWT     | DEV_MODE bypass  |
+| Auth in production        | Keycloak JWT     | Keycloak JWT enforced (dev bypass local only) |
 | Test coverage             | > 80%            | Partial          |
 | API p95 latency           | < 100ms          | Unknown          |
 | Uptime                    | 99.9%            | Local dev only   |
-| Alert notification channels | ≥ 2 (email + Slack) | None          |
-| Kubernetes deployable     | Yes              | Not yet          |
+| Alert notification channels | ≥ 2 (email + Slack) | Email, Slack, generic webhook |
+| Kubernetes deployable     | Yes              | Yes — manifests, overlays, HPAs |
 | Documentation             | Complete         | In progress      |

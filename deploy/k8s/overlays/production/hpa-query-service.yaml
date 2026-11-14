@@ -1,0 +1,35 @@
+# query-service autoscaling. Stateless (ClickHouse reads + a Redis-free
+# in-process cache) — scales horizontally behind the gateway.
+# The HPA owns the replica count: minReplicas is the production baseline and
+# the production overlay deliberately sets no `replicas` for this Deployment.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: query-service
+  namespace: cryptoscope
+  labels:
+    app: query-service
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: query-service
+  minReplicas: 3
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300

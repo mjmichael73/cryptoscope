@@ -1,0 +1,239 @@
+# Fluent Bit DaemonSet shipping container logs to Loki.
+#
+# The config mirrors deploy/fluent-bit/fluent-bit.conf (the Compose variant)
+# but tails CRI files under /var/log/containers instead of Docker json-file
+# logs — keep the [OUTPUT] blocks in sync. The Loki Service in loki.yaml
+# satisfies the default LOKI_HOST/LOKI_PORT; point the DaemonSet env at a
+# managed Loki to ship elsewhere.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fluent-bit
+  namespace: cryptoscope
+  labels:
+    app: fluent-bit
+    app.kubernetes.io/part-of: cryptoscope
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fluent-bit-read
+  labels:
+    app: fluent-bit
+    app.kubernetes.io/part-of: cryptoscope
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fluent-bit-read
+  labels:
+    app: fluent-bit
+    app.kubernetes.io/part-of: cryptoscope
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fluent-bit-read
+subjects:
+  - kind: ServiceAccount
+    name: fluent-bit
+    namespace: cryptoscope
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: cryptoscope
+  labels:
+    app: fluent-bit
+    app.kubernetes.io/part-of: cryptoscope
+data:
+  fluent-bit.conf: |-
+    [SERVICE]
+        Flush         5
+        Daemon        Off
+        Log_Level     info
+        Parsers_File  /fluent-bit/etc/parsers.conf
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_Port     2020
+        storage.path  /var/log/fluent-bit-storage
+        storage.sync  normal
+
+    # CRI log files (containerd) — every pod on the node.
+    [INPUT]
+        Name             tail
+        Tag              kube.*
+        Path             /var/log/containers/*.log
+        Parser           cri
+        DB               /var/log/fluent-bit-storage/kube-tail.db
+        DB.Sync          Normal
+        Mem_Buf_Limit    20MB
+        Skip_Long_Lines  On
+        Refresh_Interval 10
+        storage.type     filesystem
+
+    # Enrich records with pod metadata (namespace, pod, container, labels).
+    [FILTER]
+        Name            kubernetes
+        Match           kube.*
+        Kube_URL        https://kubernetes.default.svc:443
+        Kube_CA_File    /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File /var/run/secrets/kubernetes.io/serviceaccount/token
+        Labels          On
+        Annotations     Off
+
+    # Parse the structured JSON every service emits to expose level and
+    # tenant_id as labels. Non-JSON lines keep their original fields.
+    [FILTER]
+        Name         parser
+        Match        kube.*
+        Key_Name     log
+        Parser       app_json
+        Preserve_Key On
+        Reserve_Data On
+
+    # Map the pod's app label onto the service field used everywhere else.
+    # The Modify filter cannot expand record accessors in values, so a small
+    # Lua filter does the lookup (same script as deploy/fluent-bit/).
+    [FILTER]
+        Name   lua
+        Match  kube.*
+        script /fluent-bit/etc/promote-service.lua
+        call   cb_promote_service
+
+    # Loki is the default log store; view logs in Grafana.
+    # Low-cardinality labels only: trace_id stays in the log body on purpose.
+    [OUTPUT]
+        Name                   loki
+        Match                  *
+        Host                   ${LOKI_HOST}
+        Port                   ${LOKI_PORT}
+        Labels                 app=cryptoscope
+        Label_Keys             $service,$level,$tenant_id
+        auto_kubernetes_labels On
+
+    # Elasticsearch output kept ready for a later switch:
+    # [OUTPUT]
+    #     Name    es
+    #     Match   *
+    #     Host    elasticsearch
+    #     Port    9200
+    #     Index   cryptoscope-logs
+
+  parsers.conf: |-
+    # Keep in sync with deploy/fluent-bit/parsers.conf.
+    [PARSER]
+        Name        cri
+        Format      regex
+        Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+        Time_Keep   On
+
+    [PARSER]
+        Name   app_json
+        Format json
+
+  promote-service.lua: |-
+    -- Keep in sync with deploy/fluent-bit/promote-service.lua.
+    function cb_promote_service(tag, timestamp, record)
+      local attrs = record["attrs"]
+      if type(attrs) == "table" then
+        local svc = attrs["com.docker.compose.service"]
+        if svc == nil then
+          svc = attrs["com.docker.swarm.service.name"]
+        end
+        if svc ~= nil then
+          record["service"] = svc
+          return 1, timestamp, record
+        end
+      end
+
+      local kube = record["kubernetes"]
+      if type(kube) == "table" and type(kube["labels"]) == "table" then
+        local app = kube["labels"]["app"]
+        if app ~= nil then
+          record["service"] = app
+        end
+      end
+
+      return 1, timestamp, record
+    end
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  namespace: cryptoscope
+  labels:
+    app: fluent-bit
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit
+  template:
+    metadata:
+      labels:
+        app: fluent-bit
+    spec:
+      serviceAccountName: fluent-bit
+      terminationGracePeriodSeconds: 10
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: fluent-bit
+          image: fluent/fluent-bit:3.2.10
+          ports:
+            - containerPort: 2020
+              name: http
+          env:
+            - name: LOKI_HOST
+              value: "loki"
+            - name: LOKI_PORT
+              value: "3100"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 2020
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 2020
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: storage
+              mountPath: /var/log/fluent-bit-storage
+      volumes:
+        - name: config
+          configMap:
+            name: fluent-bit-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: storage
+          emptyDir: {}

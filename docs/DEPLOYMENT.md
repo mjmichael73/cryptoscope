@@ -63,6 +63,7 @@ make migrate-new msg="description"  # create a new migration
 | File                           | Purpose                              |
 | ------------------------------ | ------------------------------------ |
 | `docker-compose.yml`          | Full local development stack         |
+| `docker-compose.prod.yml`     | Production stack for Docker Swarm    |
 | `docker-compose.tests.yml`    | Test and lint runner containers      |
 
 ## Building images
@@ -73,7 +74,58 @@ make build       # build all Docker images without starting
 
 Production images are built from service-specific `Dockerfile`s. Python services use multi-stage builds. The frontend uses nginx for production serving.
 
+## Log shipping (Fluent Bit → Loki)
+
+All services emit structured JSON logs (`service`, `tenant_id`, `trace_id`).
+Fluent Bit ships container logs to Loki, and a Loki datasource is
+auto-provisioned in Grafana.
+
+- Local development is opt-in: `docker compose --profile logs up -d loki fluent-bit`
+- The Swarm stack (`docker-compose.prod.yml`) runs `loki` and `fluent-bit` always
+- Kubernetes runs a Fluent Bit DaemonSet and single-node Loki
+  (`deploy/k8s/base/fluent-bit.yaml`, `deploy/k8s/base/loki.yaml`)
+
+Labels stay low-cardinality: `app`, `service`, `level`, `tenant_id`.
+`trace_id` deliberately stays in the log body — correlate traces to logs via
+the Jaeger datasource in Grafana. To ship to Elasticsearch instead, enable
+the commented `es` output in `deploy/fluent-bit/fluent-bit.conf`.
+
 ## Production deployment
+
+### Docker Swarm (`docker-compose.prod.yml`)
+
+Deploys the application tier plus observability to a Swarm cluster as a
+simpler alternative to the Kubernetes manifests. Data stores stay externally
+managed, credentials are mounted as Docker secrets, and Kafka uses SASL_SSL.
+
+```bash
+# 1. Set production values in .env (see the Docker Swarm section at the end
+#    of .env.example): KAFKA_BROKERS, REDIS_ADDR, CLICKHOUSE_HOST,
+#    CLICKHOUSE_ADDR, TENANT_ID, KEYCLOAK_*, CORS_ALLOWED_ORIGINS,
+#    CRYPTOSCOPE_IMAGE_TAG.
+
+# 2. Write each credential to secrets/<name>.txt (git-ignored) and create the
+#    Swarm secrets. Idempotent: existing secrets are skipped.
+make swarm-secrets
+
+# 3. Push cryptoscope/* images to a registry reachable by every node and set
+#    CRYPTOSCOPE_IMAGE_TAG (CI publishes them), or build on the manager:
+#    make k8s-build
+
+# 4. Deploy
+make swarm-deploy       # docker stack deploy -c docker-compose.prod.yml cryptoscope
+docker stack services cryptoscope
+
+# Tear down
+make swarm-remove
+```
+
+Swarm ignores `depends_on`, so services restart with `restart_policy` until
+their dependencies accept connections — expected cold-start behaviour. There
+is no HPA in Swarm; replica counts are static and scaled manually with
+`docker service scale`.
+
+### Kubernetes
 
 See [docs/production.md](production.md) for the full production deployment guide, including:
 
@@ -116,6 +168,7 @@ All configuration is done via environment variables. See `.env.example` for the 
 | `REDIS_PASSWORD_FILE`       | gateway, ingest  | Redis AUTH secret file; required in production |
 | `REDIS_TLS_ENABLED`         | gateway, ingest  | Enable verified TLS; required in production   |
 | `CRYPTOSCOPE_ENV`           | gateway, ingest  | Set to `production` to require Redis AUTH/TLS |
+| `CRYPTOSCOPE_IMAGE_TAG`     | prod compose     | Image tag for all `cryptoscope/*` images in `docker-compose.prod.yml` |
 | `LOG_LEVEL`                 | all              | `debug`, `info`, `warn`, `error`        |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | gateway    | Rate limit per tenant per minute         |
 | `SMTP_HOST`                | alert-service  | SMTP server for email notifications      |

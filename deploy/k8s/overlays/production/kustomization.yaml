@@ -5,45 +5,18 @@ namespace: cryptoscope-prod
 
 resources:
   - ../../base
+  - hpa-api-gateway.yaml
+  - hpa-query-service.yaml
+  - hpa-command-service.yaml
 
 namePrefix: prod-
 
-# Production overrides: higher replicas, stricter limits, no dev defaults
+# Production overrides: HPA-owned replica counts, stricter limits, no dev
+# defaults. Note: no `replicas` patches for api-gateway, query-service or
+# command-service — their HorizontalPodAutoscalers (hpa-*.yaml) own the
+# replica count, and a static `replicas` field would fight the HPA on every
+# `kubectl apply -k`. Requires metrics-server in the cluster.
 patches:
-  # Scale up stateless services
-  - target:
-      kind: Deployment
-      name: api-gateway
-    patch: |
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: api-gateway
-      spec:
-        replicas: 3
-
-  - target:
-      kind: Deployment
-      name: query-service
-    patch: |
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: query-service
-      spec:
-        replicas: 3
-
-  - target:
-      kind: Deployment
-      name: command-service
-    patch: |
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: command-service
-      spec:
-        replicas: 2
-
   # Stricter resource limits for production
   - target:
       kind: Deployment

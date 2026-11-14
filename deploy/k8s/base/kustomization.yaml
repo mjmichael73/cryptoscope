@@ -12,6 +12,9 @@ resources:
   - command-service.yaml
   - alert-service.yaml
   - api-gateway.yaml
+  - frontend.yaml
+  - fluent-bit.yaml
+  - loki.yaml
   - network-policies.yaml
   - network-policies-dns.yaml
   - network-policies-ingest.yaml

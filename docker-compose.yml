@@ -15,6 +15,9 @@ x-logging: &default-logging
   options:
     max-size: "10m"
     max-file: "3"
+    # Stamp each container's service name into its log lines so Fluent Bit
+    # (deploy/fluent-bit/fluent-bit.conf) can promote it to the Loki label.
+    labels: "com.docker.compose.service,com.docker.swarm.service.name"
 
 services:
   # ---------------------------------------------------------------------------
@@ -222,7 +225,7 @@ services:
       dockerfile: services/command-service/Dockerfile
     environment:
       LOG_LEVEL: debug
-      POSTGRES_DSN: postgres://cryptoscope:HCtUz4EMXyavcKRC@postgres:5432/cryptoscope?sslmode=disable
+      POSTGRES_DSN: ${POSTGRES_DSN:?Set POSTGRES_DSN in .env}
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC_EVENTS: domain.events
       COMMAND_SERVICE_HTTP_PORT: "8002"
@@ -304,7 +307,7 @@ services:
       dockerfile: services/alert-service/Dockerfile
     environment:
       LOG_LEVEL: debug
-      POSTGRES_DSN: postgres://cryptoscope:HCtUz4EMXyavcKRC@postgres:5432/cryptoscope?sslmode=disable
+      POSTGRES_DSN: ${POSTGRES_DSN:?Set POSTGRES_DSN in .env}
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC_EVENTS: domain.events
       KAFKA_TOPIC_ALERTS: alerts.triggers
@@ -350,11 +353,48 @@ services:
     networks:
       - shared-services-network
 
+  # ---------------------------------------------------------------------------
+  # Log shipping (opt-in)
+  # ---------------------------------------------------------------------------
+  # Start with: docker compose --profile logs up -d loki fluent-bit
+  # Fluent Bit tails every container's json-file logs and ships them to Loki;
+  # explore them in Grafana (Loki datasource is auto-provisioned).
+  loki:
+    image: grafana/loki:3.4.2
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    profiles: ["logs"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./deploy/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - lokidata:/loki
+    logging: *default-logging
+    networks:
+      - shared-services-network
+
+  # Its own logging driver is `none` so it cannot tail itself into a loop.
+  fluent-bit:
+    image: fluent/fluent-bit:3.2.10
+    profiles: ["logs"]
+    volumes:
+      - ./deploy/fluent-bit:/fluent-bit/etc:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - fluentbitstorage:/var/log/fluent-bit-storage
+    logging:
+      driver: none
+    depends_on:
+      loki:
+        condition: service_started
+    networks:
+      - shared-services-network
+
 volumes:
   chdata:
   mongodata:
   promdata:
   grafanadata:
+  lokidata:
+  fluentbitstorage:
 
 networks:
   shared-services-network:

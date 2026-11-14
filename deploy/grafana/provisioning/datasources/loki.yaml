@@ -1,0 +1,16 @@
+# Auto-provisioned Grafana datasource for Loki.
+# Mounted into the Grafana container at /etc/grafana/provisioning/datasources/.
+#
+# The uid must stay `loki`: the Jaeger datasource links traces to these logs
+# through tracesToLogsV2.datasourceUid (see prometheus.yaml in this directory).
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    editable: true
+    jsonData:
+      maxLines: 1000

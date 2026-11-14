@@ -1,7 +1,7 @@
 """Structured JSON logging built on structlog.
 
-Every service logs the same shape so the ELK stack can index the fields it
-cares about, in particular the tenant and trace identifiers.
+Every service logs the same shape so the log aggregation stack can index the
+fields it cares about, in particular the tenant and trace identifiers.
 """
 
 from __future__ import annotations

@@ -1,0 +1,47 @@
+# Loki single-binary configuration shared by the Compose stacks.
+# Keep in sync with the ConfigMap embedded in deploy/k8s/base/loki.yaml.
+#
+# Storage is the local filesystem (named volume in Compose, a PVC in
+# Kubernetes) and retention is 7 days.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# Retention requires the compactor to process delete requests.
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+limits_config:
+  retention_period: 168h
+  ingestion_rate_mb: 8
+  ingestion_burst_size_mb: 16
+  max_query_series: 5000
+
+analytics:
+  reporting_enabled: false

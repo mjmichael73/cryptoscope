@@ -34,5 +34,8 @@ node_modules/
 .data/
 *.log
 
+# Secret files for the Swarm stack (see docker-compose.prod.yml)
+secrets/
+
 # Generated protobuf stubs are committed intentionally, but keep temp dirs out
 /tmp/

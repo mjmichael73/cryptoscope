@@ -51,11 +51,14 @@ itself.
 ├── scripts/
 │   ├── bootstrap.sh               # seed demo tenant + watchlist
 │   └── gen_proto.sh               # protobuf stub generator
-├── deploy/                        # observability configs
+├── deploy/                        # observability + deployment configs
+│   ├── fluent-bit/                #   Fluent Bit → Loki log shipping config
+│   ├── grafana-dashboards/
+│   ├── loki/                      #   Loki single-binary config
 │   ├── otel-collector.yaml
-│   ├── prometheus.yaml
-│   └── grafana-dashboards/
+│   └── prometheus.yaml
 ├── docker-compose.yml             # full dev stack (13 services incl. data stores)
+├── docker-compose.prod.yml        # production stack for Docker Swarm (app tier + observability)
 ├── docker-compose.tests.yml       # test/lint/proto runner services
 ├── Dockerfile.proto               # protobuf toolchain image
 ├── Dockerfile.test.python         # Python test image with dev deps
@@ -129,6 +132,9 @@ See `docs/architecture.md` for the full breakdown.
 | `make ps` | List running services |
 | `make logs` | Tail logs from all services |
 | `make clean` | Remove all containers, volumes, and build cache |
+| `make swarm-secrets` | Create Docker secrets from `./secrets/` files (idempotent) |
+| `make swarm-deploy` | Deploy the production stack to a Swarm manager |
+| `make swarm-remove` | Remove the Swarm stack |
 
 ### Shell access
 | Command | Description |

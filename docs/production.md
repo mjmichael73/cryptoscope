@@ -21,7 +21,7 @@ This guide covers moving cryptoscope from local Docker Compose to a production e
 | TLS between services    | None                           | mTLS via service mesh                  |
 | ClickHouse              | Single node                    | Replicated cluster                     |
 | Observability           | Local Jaeger/Prometheus        | Managed or self-hosted with retention  |
-| Log shipping            | stdout JSON                    | Fluent Bit → Elasticsearch / Loki     |
+| Log shipping            | stdout JSON                    | Fluent Bit → Loki (Elasticsearch optional) |
 
 ## Required environment variables
 
@@ -167,11 +167,26 @@ Kubernetes manifests use Kustomize with overlays for staging and production:
 
 ```
 deploy/k8s/
-├── base/                          # shared manifests (all services, network policies)
+├── base/                          # shared manifests (all services, frontend, Loki, Fluent Bit, network policies)
 ├── overlays/
-│   ├── staging/                   # staging: DEV_MODE=true, 1 replica per service
-│   └── production/                # production: 2-3 replicas, stricter limits
+│   ├── staging/                   # staging: DEV_MODE=true, fixed 1 replica per service
+│   └── production/                # production: HPAs, stricter limits
 ```
+
+### Autoscaling
+
+The production overlay ships HorizontalPodAutoscalers for the stateless HTTP
+tier — `api-gateway` (3–8 replicas, CPU 70%), `query-service` (3–8, CPU 75%)
+and `command-service` (2–6, CPU 75%) — each with a memory ceiling and a
+5-minute scale-down stabilization window. The HPAs own the replica counts of
+these Deployments: the overlay deliberately sets no static `replicas` for
+them, so re-applying the overlay never fights the autoscaler. Prerequisite:
+metrics-server must be installed in the cluster.
+
+`ingest-service`, `stream-processor` and `alert-service` have no CPU-based
+HPA on purpose: they are Kafka consumers whose parallelism is bounded by the
+topic partition count. Scale them by adding partitions and replicas together;
+if partitions themselves should drive scaling, KEDA is the intended path.
 
 ### Deploy with Kustomize
 
@@ -237,13 +252,64 @@ Grafana dashboards are in `deploy/grafana-dashboards/`. Import them into your Gr
 
 ### Logs
 
-All services emit structured JSON logs. In production, ship them to a log aggregator:
+All services emit structured JSON logs:
 
 ```
 service=<name> tenant_id=<id> trace_id=<id> level=info msg="..."
 ```
 
-Use Fluent Bit or similar to forward to Elasticsearch, Loki, or CloudWatch.
+Fluent Bit ships container logs to Loki, which is provisioned as a Grafana
+datasource:
+
+- **Kubernetes**: the `fluent-bit` DaemonSet (`deploy/k8s/base/fluent-bit.yaml`)
+  tails `/var/log/containers` on every node and the single-node `loki`
+  Deployment (`deploy/k8s/base/loki.yaml`) stores them. Point the DaemonSet's
+  `LOKI_HOST`/`LOKI_PORT` env at a managed Loki to ship elsewhere.
+- **Docker Swarm**: `loki` and `fluent-bit` run from `docker-compose.prod.yml`
+  using `deploy/loki/loki-config.yaml` and `deploy/fluent-bit/fluent-bit.conf`.
+- **Local development**: opt-in with
+  `docker compose --profile logs up -d loki fluent-bit`.
+
+Labels stay low-cardinality (`app`, `service`, `level`, `tenant_id`);
+`trace_id` remains in the log body, so Jaeger's "logs for this trace" link in
+Grafana works without exploding label cardinality. Retention is 7 days. To
+switch to Elasticsearch, enable the commented `es` output in the Fluent Bit
+configs — the JSON field shape is designed to index cleanly either way.
+
+## Docker Swarm deployment
+
+`docker-compose.prod.yml` is the simpler alternative for clusters without
+Kubernetes. It deploys the six services, the frontend and observability
+(otel-collector, Jaeger, Prometheus, Grafana, Loki, Fluent Bit) while Kafka,
+PostgreSQL, ClickHouse, MongoDB and Redis stay externally managed.
+
+```bash
+# 1. Environment: copy .env.example and set the production values listed in
+#    its Docker Swarm section (Kafka SASL_SSL endpoints, Redis AUTH+TLS,
+#    Keycloak, CORS origins, CRYPTOSCOPE_IMAGE_TAG).
+
+# 2. Secrets: write each credential to secrets/<name>.txt (git-ignored),
+#    then create the Swarm secrets (idempotent):
+make swarm-secrets
+
+# 3. Images: push cryptoscope/* images to a registry reachable by every node
+#    (CI publishes them), or build on the manager with make k8s-build.
+
+# 4. Deploy:
+make swarm-deploy
+docker stack services cryptoscope
+```
+
+Notes:
+
+- Swarm ignores `depends_on`; tasks restart with `restart_policy` until
+  dependencies accept connections — watch `docker service ps` during rollout.
+- No autoscaling in Swarm: replicas are static. Scale with
+  `docker service scale cryptoscope_api-gateway=5` as load grows.
+- Port bindings use Swarm ingress mode: 80 (frontend), 8080 (api-gateway),
+  plus Grafana/Prometheus/Jaeger for operators. Terminate TLS on the edge
+  load balancer.
+- Redeploy by building new images and running `make swarm-deploy` again.
 
 ## Scaling considerations
 
@@ -301,6 +367,7 @@ builds and pushes images to GHCR with the version tag.
 - [ ] Redis AUTH enabled and TLS configured
 - [ ] Grafana dashboards imported and alerting configured
 - [ ] Log aggregation pipeline verified
+- [ ] metrics-server installed and HPAs behaving on the production overlay
 - [ ] Backup and restore tested
 - [ ] Rate limiting values tuned for expected traffic
 - [ ] Health check endpoints verified from outside the cluster

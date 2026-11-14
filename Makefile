@@ -257,3 +257,33 @@ k8s-status-staging: ## Show staging cluster status
 .PHONY: k8s-logs-staging
 k8s-logs-staging: ## Tail logs from staging pods
 	kubectl -n cryptoscope-staging logs -l app.kubernetes.io/part-of=cryptoscope --tail=100 -f
+
+# ── Docker Swarm deployment ──────────────────────────────────────────
+
+SWARM_STACK := cryptoscope
+SWARM_SECRETS := postgres_dsn redis_password mongo_uri clickhouse_user clickhouse_password kafka_sasl_username kafka_sasl_password kafka_ca
+
+.PHONY: swarm-secrets
+swarm-secrets: ## Create Docker secrets from ./secrets/ files (idempotent)
+	@echo "==> creating Swarm secrets from ./secrets/"
+	@for name in $(SWARM_SECRETS); do \
+		file="secrets/$$name.txt"; \
+		if [ ! -f "$$file" ]; then \
+			echo "    missing $${file} (create it first)"; \
+		elif docker secret inspect "$$name" >/dev/null 2>&1; then \
+			echo "    $$name already exists, skipping"; \
+		else \
+			docker secret create "$$name" "$$file" >/dev/null && echo "    created $$name"; \
+		fi; \
+	done
+
+.PHONY: swarm-deploy
+swarm-deploy: ## Deploy the production stack to a Swarm manager (docker stack deploy)
+	@echo "==> deploying stack $(SWARM_STACK)"
+	docker stack deploy -c docker-compose.prod.yml $(SWARM_STACK)
+	@echo "==> check status with: docker stack services $(SWARM_STACK)"
+
+.PHONY: swarm-remove
+swarm-remove: ## Remove the production stack from Swarm
+	@echo "==> removing stack $(SWARM_STACK)"
+	docker stack rm $(SWARM_STACK)

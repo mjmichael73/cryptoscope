@@ -1,0 +1,36 @@
+# api-gateway autoscaling. Stateless HTTP entrypoint — the primary scaling
+# candidate. Requires metrics-server in the cluster.
+# The HPA owns the replica count: minReplicas is the production baseline and
+# the production overlay deliberately sets no `replicas` for this Deployment.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway
+  namespace: cryptoscope
+  labels:
+    app: api-gateway
+    app.kubernetes.io/part-of: cryptoscope
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 3
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Keep spare gateways for 5 minutes after load drops to absorb bursts.
+      stabilizationWindowSeconds: 300

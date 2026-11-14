@@ -17,8 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/contributing.md` — contribution guidelines
 - `docs/deployment.md` — deployment and environment variable reference
 - `docs/troubleshooting.md` — project-specific troubleshooting guide
+- HorizontalPodAutoscalers for api-gateway, query-service and command-service in the production overlay
+- Kubernetes manifests for the frontend, a Fluent Bit DaemonSet and a single-node Loki
+- Fluent Bit → Loki log shipping: configs in `deploy/fluent-bit/` and `deploy/loki/`, auto-provisioned Grafana Loki datasource, opt-in `logs` profile for local Compose
+- `docker-compose.prod.yml` — production stack for Docker Swarm, with `make swarm-deploy`, `swarm-secrets` and `swarm-remove`
 
 ### Changed
+- Production overlay no longer pins static `replicas` for the HPA-managed services; the HPAs own the replica counts
+- Dev compose reads `POSTGRES_DSN` from `.env` instead of embedding it
 - Rewrote all existing docs to be project-specific instead of generic
 
 ## [0.1.0] — 2026-08-23

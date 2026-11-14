@@ -1,0 +1,451 @@
+# cryptoscope production stack for Docker Swarm.
+#
+# Simpler alternative to the Kubernetes manifests in deploy/k8s/: deploys the
+# application tier and observability, while Kafka, PostgreSQL, ClickHouse,
+# MongoDB and Redis stay externally managed. The same production rules as
+# Kubernetes apply here (see docs/production.md): SASL_SSL Kafka with mounted
+# SASL credentials, Redis AUTH + TLS, secret files instead of plain env
+# credentials, DEV_MODE=false, explicit CORS origins.
+#
+# Usage (Swarm):
+#   make swarm-secrets   # create Docker secrets from ./secrets/ files
+#   make swarm-deploy    # docker stack deploy -c docker-compose.prod.yml cryptoscope
+#   make swarm-remove
+#
+# Secrets are Swarm-native (external, created with `docker secret create` —
+# `docker stack deploy` cannot read file-based secrets). `make swarm-secrets`
+# creates every secret below from ./secrets/ if it does not exist yet.
+#
+# Swarm notes:
+#   - depends_on is ignored; services restart with restart_policy until their
+#     dependencies accept connections. That is expected cold-start behaviour.
+#   - There is no HPA in Swarm — replica counts below are static. Scale with
+#     `docker service scale cryptoscope_api-gateway=5` as load requires.
+#   - The stack name (`cryptoscope`) is passed on the deploy command line; the
+#     `name:` field below applies only to plain `docker compose` usage.
+
+name: cryptoscope-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+    # Stamp each container's service name into its log lines so Fluent Bit
+    # (deploy/fluent-bit/fluent-bit.conf) can promote it to the Loki label.
+    labels: "com.docker.compose.service,com.docker.swarm.service.name"
+
+x-swarm-restart: &swarm-restart
+  restart_policy:
+    condition: any
+    delay: 10s
+
+x-kafka-sasl: &kafka-sasl
+  KAFKA_SECURITY_PROTOCOL: SASL_SSL
+  KAFKA_SASL_MECHANISM: SCRAM-SHA-512
+  KAFKA_SASL_USERNAME_FILE: /run/secrets/kafka_sasl_username
+  KAFKA_SASL_PASSWORD_FILE: /run/secrets/kafka_sasl_password
+  KAFKA_TLS_CA_FILE: /run/secrets/kafka_ca
+
+x-otel: &otel
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_SERVICE_NAMESPACE: cryptoscope
+
+services:
+  # ---------------------------------------------------------------------------
+  # Application services
+  # ---------------------------------------------------------------------------
+  ingest-service:
+    image: cryptoscope/ingest-service:${CRYPTOSCOPE_IMAGE_TAG:-latest}
+    environment:
+      LOG_LEVEL: info
+      CRYPTOSCOPE_ENV: production
+      KAFKA_BROKERS: ${KAFKA_BROKERS:?Set KAFKA_BROKERS to the SASL_SSL endpoints in .env}
+      KAFKA_TOPIC_TICKS: ${KAFKA_TOPIC_TICKS:-market.ticks.raw}
+      <<: [*kafka-sasl, *otel]
+      REDIS_ADDR: ${REDIS_ADDR:?Set REDIS_ADDR to the AUTH+TLS endpoint in .env}
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_TLS_ENABLED: "true"
+      REDIS_DB: "0"
+      BINANCE_BASE_URL: ${BINANCE_BASE_URL:-https://api.binance.com}
+      COINBASE_BASE_URL: ${COINBASE_BASE_URL:-https://api.exchange.coinbase.com}
+      INGEST_SYMBOLS: ${INGEST_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+      INGEST_POLL_INTERVAL_SECONDS: ${INGEST_POLL_INTERVAL_SECONDS:-15}
+      PROMETHEUS_METRICS_PORT: "9100"
+    secrets:
+      - kafka_sasl_username
+      - kafka_sasl_password
+      - kafka_ca
+      - redis_password
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: 0.25
+          memory: 256M
+
+  stream-processor:
+    image: cryptoscope/stream-processor:${CRYPTOSCOPE_IMAGE_TAG:-latest}
+    environment:
+      LOG_LEVEL: info
+      CRYPTOSCOPE_ENV: production
+      KAFKA_BROKERS: ${KAFKA_BROKERS:?Set KAFKA_BROKERS to the SASL_SSL endpoints in .env}
+      KAFKA_TOPIC_TICKS: ${KAFKA_TOPIC_TICKS:-market.ticks.raw}
+      KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-cryptoscope}
+      <<: [*kafka-sasl, *otel]
+      MONGO_URI_FILE: /run/secrets/mongo_uri
+      MONGO_DB: ${MONGO_DB:-cryptoscope}
+      CLICKHOUSE_ADDR: ${CLICKHOUSE_ADDR:?Set CLICKHOUSE_ADDR to the native endpoint in .env}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-cryptoscope}
+      CLICKHOUSE_USER_FILE: /run/secrets/clickhouse_user
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
+      TENANT_ID: ${TENANT_ID:?Set TENANT_ID in .env}
+      INTERVALS: ${PROCESSOR_INTERVALS:-1m,5m,1h,1d}
+      PROMETHEUS_METRICS_PORT: "9100"
+    secrets:
+      - kafka_sasl_username
+      - kafka_sasl_password
+      - kafka_ca
+      - mongo_uri
+      - clickhouse_user
+      - clickhouse_password
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 1
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+        reservations:
+          cpus: 0.5
+          memory: 512M
+
+  command-service:
+    image: cryptoscope/command-service:${CRYPTOSCOPE_IMAGE_TAG:-latest}
+    environment:
+      LOG_LEVEL: info
+      CRYPTOSCOPE_ENV: production
+      POSTGRES_DSN_FILE: /run/secrets/postgres_dsn
+      KAFKA_BROKERS: ${KAFKA_BROKERS:?Set KAFKA_BROKERS to the SASL_SSL endpoints in .env}
+      KAFKA_TOPIC_EVENTS: ${KAFKA_TOPIC_EVENTS:-domain.events}
+      <<: [*kafka-sasl, *otel]
+      COMMAND_SERVICE_HTTP_PORT: "8002"
+    secrets:
+      - postgres_dsn
+      - kafka_sasl_username
+      - kafka_sasl_password
+      - kafka_ca
+    # Alembic migrations run at boot; keep replicas at 1 while the migration
+    # locks the database, then scale manually if the write load grows.
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8002"
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 2
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: 0.25
+          memory: 256M
+
+  query-service:
+    image: cryptoscope/query-service:${CRYPTOSCOPE_IMAGE_TAG:-latest}
+    environment:
+      LOG_LEVEL: info
+      CRYPTOSCOPE_ENV: production
+      CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:?Set CLICKHOUSE_HOST to the HTTP endpoint in .env}
+      CLICKHOUSE_HTTP_PORT: ${CLICKHOUSE_HTTP_PORT:-8123}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-cryptoscope}
+      CLICKHOUSE_USER_FILE: /run/secrets/clickhouse_user
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
+      QUERY_SERVICE_HTTP_PORT: "8001"
+      QUERY_SERVICE_GRPC_PORT: "9001"
+      <<: *otel
+    secrets:
+      - clickhouse_user
+      - clickhouse_password
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 3
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: 0.25
+          memory: 256M
+
+  alert-service:
+    image: cryptoscope/alert-service:${CRYPTOSCOPE_IMAGE_TAG:-latest}
+    environment:
+      LOG_LEVEL: info
+      CRYPTOSCOPE_ENV: production
+      POSTGRES_DSN_FILE: /run/secrets/postgres_dsn
+      KAFKA_BROKERS: ${KAFKA_BROKERS:?Set KAFKA_BROKERS to the SASL_SSL endpoints in .env}
+      KAFKA_TOPIC_EVENTS: ${KAFKA_TOPIC_EVENTS:-domain.events}
+      KAFKA_TOPIC_ALERTS: ${KAFKA_TOPIC_ALERTS:-alerts.triggers}
+      <<: [*kafka-sasl, *otel]
+      ALERT_SERVICE_HTTP_PORT: "8003"
+      # --- Notification channels (all optional, empty = disabled) ---
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TO: ${SMTP_TO:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      ALERT_WEBHOOK_AUTH: ${ALERT_WEBHOOK_AUTH:-}
+    secrets:
+      - postgres_dsn
+      - kafka_sasl_username
+      - kafka_sasl_password
+      - kafka_ca
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 2
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: 0.25
+          memory: 256M
+
+  api-gateway:
+    image: cryptoscope/api-gateway:${CRYPTOSCOPE_IMAGE_TAG:-latest}
+    environment:
+      LOG_LEVEL: info
+      CRYPTOSCOPE_ENV: production
+      DEV_MODE: "false"
+      API_GATEWAY_HTTP_PORT: "8080"
+      QUERY_SERVICE_GRPC_ADDR: query-service:9001
+      COMMAND_SERVICE_HTTP_ADDR: http://command-service:8002
+      ALERT_SERVICE_HTTP_ADDR: http://alert-service:8003
+      REDIS_ADDR: ${REDIS_ADDR:?Set REDIS_ADDR to the AUTH+TLS endpoint in .env}
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_TLS_ENABLED: "true"
+      REDIS_DB: "0"
+      KEYCLOAK_JWKS_URL: ${KEYCLOAK_JWKS_URL:?Set KEYCLOAK_JWKS_URL in .env}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:?Set KEYCLOAK_ISSUER in .env}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:?Set KEYCLOAK_AUDIENCE in .env}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set CORS_ALLOWED_ORIGINS to the exact HTTPS origins in .env}
+      RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-120}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-40}
+      PROMETHEUS_METRICS_PORT: "9101"
+      <<: *otel
+    secrets:
+      - redis_password
+    ports:
+      - target: 8080
+        published: 8080
+        protocol: tcp
+        mode: ingress
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      # No HPA in Swarm: scale with `docker service scale cryptoscope_api-gateway=N`.
+      replicas: 3
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: 0.1
+          memory: 128M
+
+  frontend:
+    image: cryptoscope/frontend:${CRYPTOSCOPE_IMAGE_TAG:-latest}
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: ingress
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 2
+      resources:
+        limits:
+          cpus: 0.2
+          memory: 128M
+        reservations:
+          cpus: 0.05
+          memory: 64M
+
+  # ---------------------------------------------------------------------------
+  # Observability
+  # ---------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otel-collector.yaml:ro
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 1
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 256M
+        reservations:
+          cpus: 0.1
+          memory: 128M
+
+  # Traces backend: the collector config exports OTLP to jaeger:4317.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - target: 16686
+        published: 16686
+        protocol: tcp
+        mode: ingress
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 1
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+        reservations:
+          cpus: 0.1
+          memory: 128M
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+    volumes:
+      - ./deploy/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - promdata:/prometheus
+    ports:
+      - target: 9090
+        published: 9090
+        protocol: tcp
+        mode: ingress
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 1
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+        reservations:
+          cpus: 0.1
+          memory: 256M
+
+  grafana:
+    image: grafana/grafana:11.6.16
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?Set GRAFANA_ADMIN_USER in .env}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana-dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - target: 3000
+        published: 3000
+        protocol: tcp
+        mode: ingress
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 1
+      resources:
+        limits:
+          cpus: 0.5
+          memory: 512M
+        reservations:
+          cpus: 0.1
+          memory: 256M
+
+  loki:
+    image: grafana/loki:3.4.2
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./deploy/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - lokidata:/loki
+    logging: *default-logging
+    deploy:
+      <<: *swarm-restart
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: 0.1
+          memory: 256M
+
+  # Global: one shipper per node, tails that node's container json-file logs.
+  # Its own logging driver is `none` so it cannot tail itself into a loop.
+  fluent-bit:
+    image: fluent/fluent-bit:3.2.10
+    volumes:
+      - ./deploy/fluent-bit:/fluent-bit/etc:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - fluentbitstorage:/var/log/fluent-bit-storage
+    logging:
+      driver: none
+    deploy:
+      <<: *swarm-restart
+      mode: global
+      resources:
+        limits:
+          cpus: 0.2
+          memory: 256M
+        reservations:
+          cpus: 0.05
+          memory: 64M
+
+volumes:
+  promdata:
+  grafanadata:
+  lokidata:
+  fluentbitstorage:
+
+secrets:
+  postgres_dsn:
+    external: true
+  redis_password:
+    external: true
+  mongo_uri:
+    external: true
+  clickhouse_user:
+    external: true
+  clickhouse_password:
+    external: true
+  kafka_sasl_username:
+    external: true
+  kafka_sasl_password:
+    external: true
+  kafka_ca:
+    external: true
+
+# A plain network definition (no explicit driver): `docker stack deploy`
+# creates it as an overlay network automatically; plain `docker compose` uses
+# a local bridge network instead.
+networks:
+  default:
+    name: cryptoscope-prod
