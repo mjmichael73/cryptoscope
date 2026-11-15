@@ -173,6 +173,7 @@ See `docs/architecture.md` for the full breakdown.
 | `make test-command` | Single service: command-service |
 | `make test-query` | Single service: query-service |
 | `make test-alert` | Single service: alert-service |
+| `make test-frontend` | Frontend Vitest suite in Docker |
 | `make test-libs-go` | All Go shared library tests |
 | `make test-libs-python` | All Python shared library tests |
 

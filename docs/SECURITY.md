@@ -27,6 +27,8 @@ These are tracked in the roadmap under "Security Hardening."
   - `KEYCLOAK_ISSUER` — Expected issuer claim
   - `KEYCLOAK_AUDIENCE` — Expected audience claim
 - Every authenticated access token must contain a non-empty `tenant_id` claim. The gateway ignores client-supplied tenant identity on protected routes and propagates the verified claim; a user `sub` is not treated as a tenant ID.
+- **Frontend sign-in**: the browser uses OIDC Authorization Code flow with PKCE (S256) against Keycloak. Access and refresh tokens, the PKCE verifier, and callback state are held in `sessionStorage`, so they are cleared when the browser tab session ends. This reduces persistence across restarts but does not protect tokens from script running in the page; keep dependencies trusted and prevent cross-site scripting.
+- **Local demo account**: the dev realm imports `demo@cryptoscope.local`; configure its password with `KEYCLOAK_DEMO_PASSWORD`. The frontend's demo shortcut is controlled by `VITE_DEV_AUTH=1`. Do not use sample credentials in a shared or production environment.
 
 ## Multi-tenant isolation
 

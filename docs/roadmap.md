@@ -57,12 +57,12 @@ The alert pipeline works but is minimal.
 
 The frontend is functional but basic.
 
-- [ ] Add authentication flow (login page, JWT storage, session management)
-- [ ] Watchlist management UI (create, edit, delete watchlists)
-- [ ] Alert rule creation and management UI
-- [ ] Trigger history and acknowledgment UI
-- [ ] Responsive design improvements for mobile
-- [ ] WebSocket integration for real-time price updates
+- [x] Add OIDC authentication flow (login page, session storage, token refresh)
+- [x] Watchlist management UI (create, edit, delete watchlists)
+- [x] Alert rule creation and management UI
+- [x] Trigger history, acknowledgment, and clearing UI
+- [x] Responsive design improvements for mobile
+- [x] WebSocket integration for real-time price updates — resolved with SSE streaming and automatic reconnect in `useCandleStream`
 
 ## Phase 6 — Operations & reliability 🟢
 
@@ -81,10 +81,10 @@ Operational maturity for running in production.
 
 | Metric                    | Target           | Current          |
 | ------------------------- | ---------------- | ---------------- |
-| Auth in production        | Keycloak JWT     | Keycloak JWT enforced (dev bypass local only) |
-| Test coverage             | > 80%            | Partial          |
+| Auth in production        | Keycloak JWT     | Gateway enforces Keycloak JWT; local dev supports OIDC and explicit bypass |
+| Test coverage             | > 80%            | Partial; Go, Python, and frontend suites run in Docker |
 | API p95 latency           | < 100ms          | Unknown          |
 | Uptime                    | 99.9%            | Local dev only   |
 | Alert notification channels | ≥ 2 (email + Slack) | Email, Slack, Telegram, generic webhook |
 | Kubernetes deployable     | Yes              | Yes — manifests, overlays, HPAs |
-| Documentation             | Complete         | In progress      |
+| Documentation             | Complete         | Core API, deployment, security, and usage docs maintained |

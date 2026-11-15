@@ -258,8 +258,22 @@ The React frontend at `http://localhost:5173` provides a UI for all of the
 above. Open it in your browser after `make up` to see live candlestick charts,
 manage watchlists, create alert rules, and view triggers.
 
-The frontend proxies `/api` to the gateway at `http://localhost:8080` via the
-Vite dev server (configured in `frontend/vite.config.ts`).
+The frontend proxies `/api` to the gateway at `http://localhost:8080` and
+`/auth` to Keycloak at `http://localhost:8081` via the Vite dev server
+(configured in `frontend/vite.config.ts`). Start the dev Keycloak profile to
+use OIDC sign-in:
+
+```bash
+docker compose --profile dev up -d keycloak
+```
+
+Sign in with `demo@cryptoscope.local` and the password configured by
+`KEYCLOAK_DEMO_PASSWORD` in `.env` (default `demo-password`). The Login page
+also offers a local demo shortcut when `VITE_DEV_AUTH=1`. After sign-in,
+Watchlists supports create, edit, and delete; Alert Rules supports rule
+creation and deletion; Triggers supports acknowledgment and clearing
+acknowledged or all history. Cross-tenant resources are not visible to the
+signed-in tenant.
 
 ---
 

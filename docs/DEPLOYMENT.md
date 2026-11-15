@@ -27,6 +27,24 @@ make down
 
 The frontend is served at `http://localhost:5173`. The API gateway is at `http://localhost:8080`.
 
+### Local Keycloak login
+
+The local Keycloak realm is an opt-in Compose profile. Start it alongside the
+stack when using OIDC login:
+
+```bash
+docker compose --profile dev up -d keycloak
+```
+
+Keycloak is available at `http://localhost:8081`; the frontend proxies its
+`/auth/` paths to Keycloak. The imported `cryptoscope` realm contains the
+public `cryptoscope-frontend` client and demo account
+`demo@cryptoscope.local`. Set `KEYCLOAK_DEMO_PASSWORD` in `.env` to choose the
+demo password (default: `demo-password`). The realm maps the fixed demo tenant
+UUID and slug `demo` into access tokens. `VITE_OIDC_ISSUER`,
+`VITE_OIDC_CLIENT_ID`, and `VITE_DEV_AUTH` configure the frontend; the local
+demo-login button is enabled only when `VITE_DEV_AUTH=1`.
+
 ### Seeding demo data
 
 ```bash
@@ -147,6 +165,11 @@ All configuration is done via environment variables. See `.env.example` for the 
 | `KEYCLOAK_JWKS_URL`         | api-gateway      | Required outside dev mode; signing key endpoint |
 | `KEYCLOAK_ISSUER`           | api-gateway      | Required expected JWT issuer |
 | `KEYCLOAK_AUDIENCE`         | api-gateway      | Required expected JWT audience |
+| `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` | Keycloak | Local bootstrap administrator credentials |
+| `KEYCLOAK_DEMO_PASSWORD`    | Keycloak         | Password for local demo account (`demo-password` by default) |
+| `VITE_OIDC_ISSUER`          | frontend         | OIDC issuer path; defaults to `/auth/realms/cryptoscope` |
+| `VITE_OIDC_CLIENT_ID`       | frontend         | Public client ID; defaults to `cryptoscope-frontend` |
+| `VITE_DEV_AUTH`             | frontend         | Set to `1` to show the local demo-login button |
 | `CORS_ALLOWED_ORIGINS`      | api-gateway      | Comma-separated explicit HTTPS origins; required in production |
 | `KAFKA_BROKERS`             | all Go services  | Comma-separated Kafka broker addresses   |
 | `KAFKA_SECURITY_PROTOCOL`   | all Kafka clients | `PLAINTEXT` locally; `SASL_SSL` in production |

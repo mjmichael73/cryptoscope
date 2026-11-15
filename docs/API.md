@@ -13,15 +13,17 @@ http://localhost:8080
 
 ## Authentication
 
-In production, all `/v1/*` endpoints require a valid Keycloak JWT in the
+Outside development bypass mode, all `/v1/*` endpoints require a valid Keycloak JWT in the
 `Authorization` header:
 
 ```
 Authorization: Bearer <jwt-token>
 ```
 
-In local dev (`DEV_MODE=true`), authentication is bypassed. The tenant is
-resolved from the `X-Tenant-Id` header (or a default tenant if omitted).
+In local dev (`DEV_MODE=true`), gateway authentication is bypassed and the
+tenant is resolved from `X-Tenant-Id` (or a default tenant if omitted). The
+frontend can also authenticate through the local Keycloak realm. Invalid or
+missing credentials when bypass is disabled return `401 Unauthorized`.
 
 ## Rate limiting
 
@@ -205,8 +207,8 @@ summary metadata. An empty query matches all symbols.
 
 ## Command endpoints (write side)
 
-The gateway reverse-proxies these to the command service. All write endpoints
-require an `Idempotency-Key` header to prevent duplicate operations.
+The gateway reverse-proxies these to the command service. Create requests
+require an `Idempotency-Key` header; updates and deletes do not.
 
 ### `POST /v1/watchlists`
 
@@ -246,6 +248,22 @@ Creates a new watchlist for the current tenant.
 | ------ | --------------------------- | --------------------------------- |
 | 409    | `{"detail": "..."}`         | Duplicate idempotency key         |
 | 422    | `{"detail": "..."}`         | Validation error (e.g. empty name)|
+
+### `GET /v1/watchlists` and `GET /v1/watchlists/{watchlist_id}`
+
+List the current tenant's watchlists or fetch one by ID. A watchlist belonging
+to another tenant is returned as `404 Not Found`.
+
+### `PUT /v1/watchlists/{watchlist_id}`
+
+Replace a watchlist's name and symbols. The request body uses the same `name`
+and `symbols` fields as creation. Returns the updated watchlist or `404` when
+it is not owned by the current tenant.
+
+### `DELETE /v1/watchlists/{watchlist_id}`
+
+Delete a watchlist owned by the current tenant. Returns `204 No Content`, or
+`404` if it does not exist for that tenant.
 
 ---
 
@@ -407,6 +425,13 @@ Returns a single alert rule by ID.
 | ------ | --------------------------- | ----------------------- |
 | 404    | `{"detail": "alert rule not found"}` | Rule does not exist |
 
+### `DELETE /v1/alert-rules/{rule_id}`
+
+Soft-delete an alert rule owned by the current tenant. The rule is marked
+deleted and is no longer evaluated; previously created triggers remain in
+history. Returns `204 No Content` or `404` when the rule is not found for the
+current tenant.
+
 ---
 
 ### `GET /v1/triggers`
@@ -461,6 +486,12 @@ trigger is a no-op. The gateway reverse-proxies this to the alert service.
 | Status | Body                              | Cause                    |
 | ------ | --------------------------------- | ------------------------ |
 | 404    | `{"detail": "trigger not found"}` | Trigger does not exist   |
+
+### `DELETE /v1/triggers`
+
+Clear trigger history for the current tenant. Pass `acknowledged_only=true` to
+remove only acknowledged triggers; omitting it or passing `false` clears all
+triggers. Returns `200 OK` with `{"deleted": <count>}`.
 
 ---
 
