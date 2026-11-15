@@ -43,6 +43,8 @@ export default function AlertTriggers() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
   const [ackingId, setAckingId] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [clearMessage, setClearMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,6 +60,21 @@ export default function AlertTriggers() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const clearHistory = async (acknowledgedOnly: boolean) => {
+    if (!acknowledgedOnly && !window.confirm('Clear all trigger history?')) return;
+    setClearing(true);
+    setClearMessage(null);
+    try {
+      const result = await client.clearTriggers(acknowledgedOnly);
+      setClearMessage(`${result.deleted} trigger${result.deleted === 1 ? '' : 's'} cleared`);
+      await load();
+    } catch {
+      setClearMessage('Trigger history could not be cleared.');
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const ack = async (triggerId: string) => {
     setAckingId(triggerId);
@@ -82,6 +99,7 @@ export default function AlertTriggers() {
   const unackedCount = triggers.filter((t) => !t.acknowledged).length;
   const visible =
     filter === "unacked" ? triggers.filter((t) => !t.acknowledged) : triggers;
+  const acknowledgedCount = triggers.filter((trigger) => trigger.acknowledged).length;
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -92,26 +110,34 @@ export default function AlertTriggers() {
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
-        {(
-          [
-            ["all", `All (${triggers.length})`],
-            ["unacked", `Unacknowledged (${unackedCount})`],
-          ] as [Filter, string][]
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            onClick={() => setFilter(value)}
-            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-              filter === value
-                ? "bg-violet-600 text-white"
-                : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {(
+            [
+              ["all", `All (${triggers.length})`],
+              ["unacked", `Unacknowledged (${unackedCount})`],
+            ] as [Filter, string][]
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => setFilter(value)}
+              aria-pressed={filter === value}
+              className={`min-h-11 rounded-lg px-3 text-sm font-medium transition-colors ${
+                filter === value
+                  ? "bg-violet-600 text-white"
+                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {acknowledgedCount > 0 && <button type="button" disabled={clearing} onClick={() => void clearHistory(true)} className="min-h-11 rounded-lg border border-gray-700 px-3 text-sm font-medium text-gray-200 hover:bg-gray-800 disabled:opacity-50">Clear acknowledged</button>}
+          {triggers.length > 0 && <button type="button" disabled={clearing} onClick={() => void clearHistory(false)} className="min-h-11 rounded-lg border border-rose-900 px-3 text-sm font-medium text-rose-300 hover:bg-rose-950/60 disabled:opacity-50">Clear all</button>}
+        </div>
       </div>
+      {clearMessage && <p role="status" className="text-sm text-gray-300">{clearMessage}</p>}
 
       <div className="rounded-lg border border-gray-800 bg-gray-900">
         {visible.length === 0 ? (
