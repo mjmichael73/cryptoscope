@@ -37,3 +37,6 @@ class DomainEvent:
 WATCHLIST_CREATED = "watchlist_created"
 ALERT_RULE_CREATED = "alert_rule_created"
 CANDLE_UPDATED = "candle_updated"
+WATCHLIST_UPDATED = "watchlist_updated"
+WATCHLIST_DELETED = "watchlist_deleted"
+ALERT_RULE_DELETED = "alert_rule_deleted"
