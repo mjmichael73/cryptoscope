@@ -25,6 +25,7 @@ services:
     entrypoint: ["sh", "-c"]
     command:
       - |
+        mkdir -p /opt/keycloak/data/import
         escaped_password=$$(printf '%s' "$$KEYCLOAK_DEMO_PASSWORD" | sed 's/[\\&|]/\\\\&/g')
         sed "s|__KEYCLOAK_DEMO_PASSWORD__|$$escaped_password|g" /opt/keycloak/realm-template/realm-export.json > /opt/keycloak/data/import/realm-export.json
         exec /opt/keycloak/bin/kc.sh start-dev --import-realm
@@ -35,7 +36,6 @@ services:
       KEYCLOAK_DEMO_PASSWORD: ${KEYCLOAK_DEMO_PASSWORD:-demo-password}
     volumes:
       - ./deploy/keycloak:/opt/keycloak/realm-template:ro
-      - keycloak-import:/opt/keycloak/data/import
     ports:
       - "8081:8080"
     profiles: ["dev"]
@@ -372,6 +372,8 @@ services:
     depends_on:
       api-gateway:
         condition: service_started
+      keycloak:
+        condition: service_started
     logging: *default-logging
     networks:
       - shared-services-network
@@ -418,7 +420,6 @@ volumes:
   grafanadata:
   lokidata:
   fluentbitstorage:
-  keycloak-import:
 
 networks:
   shared-services-network:

@@ -26,7 +26,7 @@ help: ## Show this help
 
 .PHONY: up
 up: ## Start all services (backend + frontend via Docker)
-	$(COMPOSE) up -d --build
+	$(COMPOSE) --profile dev up -d --build
 
 .PHONY: up-all
 up-all: ## Start backend services + frontend dev server with hot-reload

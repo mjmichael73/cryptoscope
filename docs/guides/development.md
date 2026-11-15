@@ -7,13 +7,13 @@ Docker Engine and Docker Compose v2. `make up-all` and the host frontend targets
 ## Start the application
 
 ```sh
-make up       # complete stack, including frontend container
+make up       # complete stack, including frontend container and Keycloak
 make ps
 make logs
 make seed     # after services are ready
 ```
 
-Open `http://localhost:5173`; the gateway is at `http://localhost:8080`. Local Keycloak is at `http://localhost:8081`. Use `make down` with care: it deletes Compose volumes and local data.
+Open `http://localhost:5173`; the gateway is at `http://localhost:8080`. Keycloak is at `http://localhost:8081` for local sign-in. Use `make down` with care: it deletes Compose volumes and local data.
 
 For Vite hot reload, run `make up-all`; it starts the backend and then runs `npm run dev` from `frontend/`. Alternatively, `make frontend-dev` starts Vite when the backend is already running.
 

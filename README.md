@@ -23,14 +23,14 @@ Docker Compose is the supported development environment. Docker Compose v2 is re
 Before the commands below, provide `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `MONGO_ROOT_USERNAME`, `MONGO_ROOT_PASSWORD`, and `POSTGRES_DSN` in `.env`, and ensure the `shared-services-network` plus the shared PostgreSQL service exist. Then run:
 
 ```sh
-make up                 # build and start the full stack, including the frontend
+make up                 # build and start the full stack, including frontend and Keycloak
 make ps
 make logs
 make seed               # seed the demo watchlist and alert rule
 make down               # stop the stack and remove Compose-managed volumes
 ```
 
-The UI is served at `http://localhost:5173`, the API gateway at `http://localhost:8080`, Grafana at `http://localhost:3000`, and Prometheus at `http://localhost:9090`. Keycloak is an opt-in Compose profile; start it with `docker compose --profile dev up -d keycloak` to make it available at `http://localhost:8081`. The realm includes `demo@cryptoscope.local`; its default password is `demo-password`. Change local credentials before sharing the environment.
+The UI is served at `http://localhost:5173`, the API gateway at `http://localhost:8080`, Keycloak at `http://localhost:8081`, Grafana at `http://localhost:3000`, and Prometheus at `http://localhost:9090`. `make up` enables the `dev` Compose profile so Keycloak is available for local OIDC login. The realm includes `demo@cryptoscope.local`; its default password is `demo-password`. Change local credentials before sharing the environment.
 
 `make up-all` starts backend containers and then runs the Vite development server on the host; it requires Node.js/npm in addition to Docker. `make seed` requires a running gateway and uses the local dev tenant headers. For API calls, the development gateway accepts `X-Tenant-Id` while `DEV_MODE=true`.
 
