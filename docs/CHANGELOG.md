@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Technical indicators in the query service: MACD (line, signal, histogram) and Bollinger Bands (upper, middle, lower) join SMA, EMA and rolling volatility behind `GET /v1/indicators?type=...`; each multi-line indicator is exposed as its own `type` value
+- RSI is now computed by the query service too, using the shared Wilder RSI moved into `cryptoscope_shared.indicators` (alert-service imports the same implementation)
+- New indicator kinds selectable in the Market Data page
+
+### Changed
+- Alert-service RSI evaluation now imports Wilder's RSI from `cryptoscope_shared.indicators` instead of a local copy; behavior unchanged
+
 ## [0.2.0] — 2026-11-15
 
 ### Added

@@ -10,6 +10,13 @@ const INDICATOR_TYPES = [
   { value: "sma", label: "SMA", color: "#a78bfa" },
   { value: "ema", label: "EMA", color: "#f472b6" },
   { value: "volatility", label: "Volatility", color: "#fbbf24" },
+  { value: "rsi", label: "RSI", color: "#e879f9" },
+  { value: "macd", label: "MACD", color: "#34d399" },
+  { value: "macd_signal", label: "MACD Signal", color: "#22d3ee" },
+  { value: "macd_histogram", label: "MACD Hist", color: "#60a5fa" },
+  { value: "bb_upper", label: "BB Upper", color: "#f87171" },
+  { value: "bb_middle", label: "BB Middle", color: "#94a3b8" },
+  { value: "bb_lower", label: "BB Lower", color: "#fb923c" },
 ];
 
 export default function MarketData() {

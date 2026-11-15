@@ -13,6 +13,8 @@ from __future__ import annotations
 # A close observation: (candle open time in ms, close price).
 Close = tuple[int, float]
 
+from cryptoscope_shared.indicators import rsi
+
 RSI_PERIOD = 14
 
 
@@ -94,27 +96,3 @@ def _evaluate_rsi(
     if comparator == "rsi_above":
         return value > threshold, value
     return value < threshold, value
-
-
-def rsi(prices: list[float], period: int = RSI_PERIOD) -> float | None:
-    """Wilder's RSI over a close-price series, or None when too short."""
-    if len(prices) < period + 1:
-        return None
-
-    gains = losses = 0.0
-    for i in range(1, period + 1):
-        change = prices[i] - prices[i - 1]
-        gains += max(change, 0.0)
-        losses += max(-change, 0.0)
-    avg_gain = gains / period
-    avg_loss = losses / period
-
-    for i in range(period + 1, len(prices)):
-        change = prices[i] - prices[i - 1]
-        avg_gain = (avg_gain * (period - 1) + max(change, 0.0)) / period
-        avg_loss = (avg_loss * (period - 1) + max(-change, 0.0)) / period
-
-    if avg_loss == 0:
-        return 100.0 if avg_gain > 0 else 50.0
-    rs = avg_gain / avg_loss
-    return 100.0 - 100.0 / (1.0 + rs)
