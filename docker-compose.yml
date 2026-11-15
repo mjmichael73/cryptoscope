@@ -20,6 +20,28 @@ x-logging: &default-logging
     labels: "com.docker.compose.service,com.docker.swarm.service.name"
 
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        escaped_password=$$(printf '%s' "$$KEYCLOAK_DEMO_PASSWORD" | sed 's/[\\&|]/\\\\&/g')
+        sed "s|__KEYCLOAK_DEMO_PASSWORD__|$$escaped_password|g" /opt/keycloak/realm-template/realm-export.json > /opt/keycloak/data/import/realm-export.json
+        exec /opt/keycloak/bin/kc.sh start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KEYCLOAK_DEMO_PASSWORD: ${KEYCLOAK_DEMO_PASSWORD:-demo-password}
+    volumes:
+      - ./deploy/keycloak:/opt/keycloak/realm-template:ro
+      - keycloak-import:/opt/keycloak/data/import
+    ports:
+      - "8081:8080"
+    profiles: ["dev"]
+    logging: *default-logging
+    networks:
+      - shared-services-network
+
   # ---------------------------------------------------------------------------
   # Data stores
   # ---------------------------------------------------------------------------
@@ -395,6 +417,7 @@ volumes:
   grafanadata:
   lokidata:
   fluentbitstorage:
+  keycloak-import:
 
 networks:
   shared-services-network:

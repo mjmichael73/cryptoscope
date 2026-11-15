@@ -10,7 +10,7 @@ echo "==> Seeding demo tenant and watchlist via api-gateway"
 # Create a demo watchlist
 curl -s -X POST "$API_GATEWAY/v1/watchlists" \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-Id: demo-tenant" \
+  -H "X-Tenant-Id: 11111111-2222-3333-4444-555555555555" \
   -H "X-Tenant-Slug: demo" \
   -H "Idempotency-Key: bootstrap-watchlist-001" \
   -d '{"name": "Default Watchlist", "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"]}' \
@@ -19,7 +19,7 @@ curl -s -X POST "$API_GATEWAY/v1/watchlists" \
 # Create an alert rule for BTC
 curl -s -X POST "$API_GATEWAY/v1/alert-rules" \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-Id: demo-tenant" \
+  -H "X-Tenant-Id: 11111111-2222-3333-4444-555555555555" \
   -H "X-Tenant-Slug: demo" \
   -H "Idempotency-Key: bootstrap-alert-btc-001" \
   -d '{"symbol": "BTCUSDT", "comparator": "gt", "threshold": 100000}' \
