@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation review — 2026-11-15
+- Rewrote the project guide, agent instructions, architecture, API, deployment, security, testing, contributor, usage, and service-level documentation against the checked-in implementation.
+- Recorded confirmed tenant-isolation, ingestion retry, CORS, SSE, export, and local Compose setup findings in `docs/roadmap.md`.
+- Clarified that historical ADRs and implementation plans describe intent and may not match current behavior.
+- No application code was changed and test suites were not run as part of this review.
+
 ### Added
 - Keycloak OIDC login with PKCE, a local demo account, authenticated frontend routes, and token refresh
 - Tenant-scoped watchlist list/read/update/delete and alert-rule deletion endpoints, plus a demo tenant migration

@@ -1,3 +1,7 @@
+# Archived implementation plan
+
+This dated plan records intended work and completion steps; it is not the current system specification. Some assumptions in the plan, especially universal tenant scoping and the production SSE flow, do not match the reviewed implementation. Use `docs/architecture.md`, `docs/API.md`, and `docs/roadmap.md` for current behavior and known gaps.
+
 # Phase 5 — Frontend Polish Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

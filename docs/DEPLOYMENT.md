@@ -1,207 +1,58 @@
-# Deployment — cryptoscope
+# Deployment and local setup
 
-## Local development
+## Local Docker Compose
 
-The full stack runs with Docker Compose. The only host dependency is Docker.
-Compose reads database and Grafana credentials from `.env`; the checked-in
-`.env.example` contains sample values for local development only. Copy it
-before starting the stack, and replace those values in any shared environment.
-Compose intentionally rejects missing credentials instead of embedding
-passwords in `docker-compose.yml`.
+Docker Compose v2 is required. This checkout has no `.env.example`. Before `make up`, set `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `MONGO_ROOT_USERNAME`, `MONGO_ROOT_PASSWORD`, and `POSTGRES_DSN` in `.env`. The Compose file also expects the external Docker network `shared-services-network` and a PostgreSQL instance reachable on that network; PostgreSQL is not a service in this Compose file. Inspect `docker-compose.yml` before exposing ports or sharing the environment.
 
-```bash
-cp .env.example .env
-
-# Start everything (backend + frontend via Docker)
-make up
-
-# Start backend + frontend dev server with hot-reload
-make up-all
-
-# Tail logs from all services
+```sh
+make up       # build and start the base local stack
+make ps
 make logs
-
-# Stop and clean up
-make down
+make seed     # create the demo watchlist and alert rule
+make down     # stop services and remove Compose-managed volumes
 ```
 
-The frontend is served at `http://localhost:5173`. The API gateway is at `http://localhost:8080`.
+`make up-all` starts backend and observability containers, then runs the Vite frontend on the host at port 5173. That command requires Node/npm. The frontend container serves the UI on host port 5173; the gateway is on 8080 and local Keycloak on 8081.
 
-### Local Keycloak login
+For local OIDC login, start the opt-in provider with `docker compose --profile dev up -d keycloak`. It uses realm `cryptoscope`, client `cryptoscope-frontend`, user `demo@cryptoscope.local`, and `KEYCLOAK_DEMO_PASSWORD` (default `demo-password`). Keycloak and gateway dev defaults are for local use only. `make seed` calls the gateway and assumes the stack is running in its local dev configuration.
 
-The local Keycloak realm is an opt-in Compose profile. Start it alongside the
-stack when using OIDC login:
+## Local service endpoints
 
-```bash
-docker compose --profile dev up -d keycloak
-```
+| Component | Port | Notes |
+| --- | ---: | --- |
+| Frontend | 5173 | Vite or frontend container |
+| API gateway | 8080 | Public local HTTP/SSE edge |
+| Keycloak | 8081 | Opt-in `dev` profile |
+| Query-service | 8001 / 9001 | HTTP / gRPC; internal use |
+| Command-service | 8002 | Internal HTTP |
+| Alert-service | 8003 | Internal HTTP |
+| PostgreSQL | external | Shared service on `shared-services-network`; not defined in this Compose file |
+| ClickHouse | 8123 / 9000 | HTTP / native protocol |
+| MongoDB | 27017 | Raw tick archive |
+| Redis | 6380 | Host port mapped to container port 6379 |
+| Kafka | 9092 | Local broker |
+| Prometheus / Grafana | 9090 / 3000 | Metrics and dashboards |
 
-Keycloak is available at `http://localhost:8081`; the frontend proxies its
-`/auth/` paths to Keycloak. The imported `cryptoscope` realm contains the
-public `cryptoscope-frontend` client and demo account
-`demo@cryptoscope.local`. Set `KEYCLOAK_DEMO_PASSWORD` in `.env` to choose the
-demo password (default: `demo-password`). The realm maps the fixed demo tenant
-UUID and slug `demo` into access tokens. `VITE_OIDC_ISSUER`,
-`VITE_OIDC_CLIENT_ID`, and `VITE_DEV_AUTH` configure the frontend; the local
-demo-login button is enabled only when `VITE_DEV_AUTH=1`.
+Check the Compose file for exact published ports and credentials before relying on this table in a modified environment.
 
-### Seeding demo data
+## Compose files
 
-```bash
-make seed    # creates a demo tenant and tracked symbols
-```
+- `docker-compose.yml`: local application stack, data stores, Keycloak, and local observability services.
+- `docker-compose.tests.yml`: isolated test and lint runners using source bind mounts.
+- `docker-compose.prod.yml`: Docker Swarm application/observability stack using external data services and Swarm secrets. It does not provision the external Postgres, Kafka, Redis, ClickHouse, or MongoDB clusters.
 
-### Running database migrations
+## Kubernetes
 
-```bash
-make migrate         # apply pending Alembic migrations
-make migrate-new msg="description"  # create a new migration
-```
+Kustomize assets are under `deploy/k8s/base` with `staging` and `production` overlays. Build/apply through `make k8s-build`, `make k8s-deploy K8S_OVERLAY=overlays/staging`, or `make k8s-deploy K8S_OVERLAY=overlays/production`. These manifests are deployment templates, not a turnkey cluster: supply the required secrets, data stores, ingress/TLS, image registry, DNS, and metrics-server for HPAs. The staging overlay explicitly sets `DEV_MODE=true` and must remain isolated.
 
-## Service ports (local dev)
+## Production configuration checklist
 
-| Service            | Port  | URL                                  |
-| ------------------ | ----- | ------------------------------------ |
-| api-gateway        | 8080  | http://localhost:8080                |
-| query-service      | 8001  | http://localhost:8001                |
-| command-service    | 8002  | http://localhost:8002                |
-| alert-service      | 8003  | http://localhost:8003                |
-| frontend           | 5173  | http://localhost:5173                |
-| PostgreSQL         | 5432  | postgres://localhost:5432            |
-| ClickHouse         | 8123  | http://localhost:8123 (HTTP)         |
-| ClickHouse         | 9000  | Native protocol                      |
-| MongoDB            | 27017 | mongodb://localhost:27017            |
-| Redis              | 6379  | redis://localhost:6379               |
-| Kafka              | 9092  | localhost:9092                       |
-| Prometheus         | 9090  | http://localhost:9090                |
-| Grafana            | 3000  | http://localhost:3000                |
+- Set `CRYPTOSCOPE_ENV=production` and `DEV_MODE=false` where supported.
+- Configure Keycloak JWKS URL, issuer, and audience on the gateway.
+- Set explicit HTTPS `CORS_ALLOWED_ORIGINS` on the gateway. Current CORS code omits the frontend's `Idempotency-Key` request header; see the roadmap before using a separate browser origin.
+- Provide Kafka SASL_SSL credentials and CA trust as mounted files for Kafka clients.
+- Provide PostgreSQL, MongoDB, ClickHouse, and Redis endpoints and credentials. Components use `_FILE` settings selectively; inspect `docs/production.md` and each service config because not every secret is uniformly file-backed.
+- Configure durable storage, retention, backups, restore procedures, alerting, and restricted network access for internal service ports.
+- Resolve the security and reliability issues in [the roadmap](roadmap.md), especially alert tenant isolation and SSE authorization/scoping, before multi-tenant exposure.
 
-## Docker Compose files
-
-| File                           | Purpose                              |
-| ------------------------------ | ------------------------------------ |
-| `docker-compose.yml`          | Full local development stack         |
-| `docker-compose.prod.yml`     | Production stack for Docker Swarm    |
-| `docker-compose.tests.yml`    | Test and lint runner containers      |
-
-## Building images
-
-```bash
-make build       # build all Docker images without starting
-```
-
-Production images are built from service-specific `Dockerfile`s. Python services use multi-stage builds. The frontend uses nginx for production serving.
-
-## Log shipping (Fluent Bit → Loki)
-
-All services emit structured JSON logs (`service`, `tenant_id`, `trace_id`).
-Fluent Bit ships container logs to Loki, and a Loki datasource is
-auto-provisioned in Grafana.
-
-- Local development is opt-in: `docker compose --profile logs up -d loki fluent-bit`
-- The Swarm stack (`docker-compose.prod.yml`) runs `loki` and `fluent-bit` always
-- Kubernetes runs a Fluent Bit DaemonSet and single-node Loki
-  (`deploy/k8s/base/fluent-bit.yaml`, `deploy/k8s/base/loki.yaml`)
-
-Labels stay low-cardinality: `app`, `service`, `level`, `tenant_id`.
-`trace_id` deliberately stays in the log body — correlate traces to logs via
-the Jaeger datasource in Grafana. To ship to Elasticsearch instead, enable
-the commented `es` output in `deploy/fluent-bit/fluent-bit.conf`.
-
-## Production deployment
-
-### Docker Swarm (`docker-compose.prod.yml`)
-
-Deploys the application tier plus observability to a Swarm cluster as a
-simpler alternative to the Kubernetes manifests. Data stores stay externally
-managed, credentials are mounted as Docker secrets, and Kafka uses SASL_SSL.
-
-```bash
-# 1. Set production values in .env (see the Docker Swarm section at the end
-#    of .env.example): KAFKA_BROKERS, REDIS_ADDR, CLICKHOUSE_HOST,
-#    CLICKHOUSE_ADDR, TENANT_ID, KEYCLOAK_*, CORS_ALLOWED_ORIGINS,
-#    CRYPTOSCOPE_IMAGE_TAG.
-
-# 2. Write each credential to secrets/<name>.txt (git-ignored) and create the
-#    Swarm secrets. Idempotent: existing secrets are skipped.
-make swarm-secrets
-
-# 3. Push cryptoscope/* images to a registry reachable by every node and set
-#    CRYPTOSCOPE_IMAGE_TAG (CI publishes them), or build on the manager:
-#    make k8s-build
-
-# 4. Deploy
-make swarm-deploy       # docker stack deploy -c docker-compose.prod.yml cryptoscope
-docker stack services cryptoscope
-
-# Tear down
-make swarm-remove
-```
-
-Swarm ignores `depends_on`, so services restart with `restart_policy` until
-their dependencies accept connections — expected cold-start behaviour. There
-is no HPA in Swarm; replica counts are static and scaled manually with
-`docker service scale`.
-
-### Kubernetes
-
-See [docs/production.md](production.md) for the full production deployment guide, including:
-
-- Required environment variables per service
-- Kubernetes deployment steps
-- Health check endpoints
-- Observability setup
-- Scaling considerations
-- Backup strategy
-
-## Environment variables
-
-All configuration is done via environment variables. See `.env.example` for the full list. Key variables:
-
-| Variable                    | Service          | Description                              |
-| --------------------------- | ---------------- | ---------------------------------------- |
-| `DEV_MODE`                  | api-gateway      | `true` to bypass JWT auth (dev only)     |
-| `APP_ENV`                   | api-gateway      | Set to `production` to forbid dev auth bypass; `ENVIRONMENT` is also accepted |
-| `KEYCLOAK_JWKS_URL`         | api-gateway      | Required outside dev mode; signing key endpoint |
-| `KEYCLOAK_ISSUER`           | api-gateway      | Required expected JWT issuer |
-| `KEYCLOAK_AUDIENCE`         | api-gateway      | Required expected JWT audience |
-| `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` | Keycloak | Local bootstrap administrator credentials |
-| `KEYCLOAK_DEMO_PASSWORD`    | Keycloak         | Password for local demo account (`demo-password` by default) |
-| `VITE_OIDC_ISSUER`          | frontend         | OIDC issuer path; defaults to `/auth/realms/cryptoscope` |
-| `VITE_OIDC_CLIENT_ID`       | frontend         | Public client ID; defaults to `cryptoscope-frontend` |
-| `VITE_DEV_AUTH`             | frontend         | Set to `1` to show the local demo-login button |
-| `CORS_ALLOWED_ORIGINS`      | api-gateway      | Comma-separated explicit HTTPS origins; required in production |
-| `KAFKA_BROKERS`             | all Go services  | Comma-separated Kafka broker addresses   |
-| `KAFKA_SECURITY_PROTOCOL`   | all Kafka clients | `PLAINTEXT` locally; `SASL_SSL` in production |
-| `KAFKA_SASL_USERNAME_FILE` / `KAFKA_SASL_PASSWORD_FILE` | all Kafka clients | Mounted Kafka SASL credentials in production |
-| `KAFKA_TLS_CA_FILE`         | all Kafka clients | Optional additional CA bundle for private broker certificates |
-| `POSTGRES_DSN`              | command, alert   | PostgreSQL connection string             |
-| `POSTGRES_DSN_FILE`         | command, alert   | Production PostgreSQL DSN secret file     |
-| `MONGO_URI_FILE`            | stream-processor | Production MongoDB URI secret file        |
-| `CLICKHOUSE_USER_FILE`      | processor, query | Production ClickHouse username file        |
-| `CLICKHOUSE_PASSWORD_FILE`  | processor, query | Production ClickHouse password file       |
-| `CRYPTOSCOPE_ENV`           | DB services      | Set to `production` to require secret files |
-| `MONGO_ROOT_USERNAME`       | local Compose    | Local MongoDB root username                |
-| `MONGO_ROOT_PASSWORD`       | local Compose    | Local MongoDB root password                |
-| `GRAFANA_ADMIN_USER`        | local Compose    | Local Grafana admin username               |
-| `GRAFANA_ADMIN_PASSWORD`    | local Compose    | Local Grafana admin password               |
-| `CLICKHOUSE_HOST`           | query-service    | ClickHouse host                          |
-| `REDIS_ADDR`                | gateway, ingest  | Redis address                            |
-| `REDIS_PASSWORD`            | gateway, ingest  | Local Redis AUTH password                 |
-| `REDIS_PASSWORD_FILE`       | gateway, ingest  | Redis AUTH secret file; required in production |
-| `REDIS_TLS_ENABLED`         | gateway, ingest  | Enable verified TLS; required in production   |
-| `CRYPTOSCOPE_ENV`           | gateway, ingest  | Set to `production` to require Redis AUTH/TLS |
-| `CRYPTOSCOPE_IMAGE_TAG`     | prod compose     | Image tag for all `cryptoscope/*` images in `docker-compose.prod.yml` |
-| `LOG_LEVEL`                 | all              | `debug`, `info`, `warn`, `error`        |
-| `RATE_LIMIT_REQUESTS_PER_MINUTE` | gateway    | Rate limit per tenant per minute         |
-| `SMTP_HOST`                | alert-service  | SMTP server for email notifications      |
-| `SMTP_FROM` / `SMTP_TO`   | alert-service  | Sender and recipient addresses            |
-| `SLACK_WEBHOOK_URL`        | alert-service  | Slack incoming webhook URL               |
-| `TELEGRAM_BOT_TOKEN`       | alert-service  | Telegram bot token for notifications     |
-| `TELEGRAM_CHAT_ID`         | alert-service  | Telegram chat/channel ID to post to      |
-| `PRICE_HISTORY_MAXLEN`     | alert-service  | Rolling close history size per symbol (percent-change comparators) |
-| `ALERT_WEBHOOK_URL`        | alert-service  | Generic webhook POST URL                 |
-
-## Troubleshooting
-
-See [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues.
+Full environment variables and limitations are listed in [production deployment](production.md). Authentication and known gaps are covered in [security](SECURITY.md).

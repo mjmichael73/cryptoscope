@@ -1,3 +1,7 @@
+# Archived design specification
+
+This dated specification records design intent for the frontend polish work. It is not a guarantee that each described behavior is implemented. The current tenant-scope and SSE gaps are documented in `docs/roadmap.md`; use the current API and architecture docs for implementation behavior.
+
 # Spec — Phase 5: Frontend Polish
 
 Date: 2026-11-15

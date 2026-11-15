@@ -1,304 +1,61 @@
-# Contributor notes
+# Repository guide for contributors and coding agents
 
-These notes help anyone working in this repository move quickly and keep the
-codebase consistent. They apply to the whole tree unless a nested file says
-otherwise.
+These instructions apply across the repository. Check for nested `AGENTS.md` files before changing a subdirectory; none were present during the November 15, 2026 documentation review.
 
-## Project overview
+## Project
 
-cryptoscope is a polyglot crypto market analytics platform. Price data flows from
-public exchange APIs through an ingest pipeline, is aggregated into candlesticks
-by a stream processor, and served to clients through a gateway that proxies both
-REST queries and write commands.
+Cryptoscope is a Go/Python market-data platform with a React frontend. Its six application services are `ingest-service`, `stream-processor`, `query-service`, `command-service`, `alert-service`, and `api-gateway`. The full local stack is defined in `docker-compose.yml`; test and lint runners are defined in `docker-compose.tests.yml`.
 
-The entire dev environment runs in Docker. The only host dependency is Docker
-itself.
+The source of truth for service contracts is `proto/cryptoscope/v1/`. Go modules are included in `go.work`; Python service packages live under `services/*/app` and shared Python code under `libs/python/cryptoscope_shared`.
 
-## Repository layout
+## Before changing code
 
-```
-├── proto/                         # gRPC protobuf definitions (source of truth)
-│   └── cryptoscope/v1/            #   service and message definitions
-├── libs/
-│   ├── go/                        # Go shared packages (8 sub-modules)
-│   │   ├── config/                #   env-based config loader
-│   │   ├── idempotency/           #   Redis-backed idempotency store
-│   │   ├── kafka/                 #   Kafka producer/consumer wrappers
-│   │   ├── logging/               #   structured JSON logging (slog)
-│   │   ├── metrics/               #   Prometheus HTTP metrics server
-│   │   ├── ratelimit/             #   Redis token-bucket rate limiter
-│   │   ├── tenant/                #   tenant identity context helpers
-│   │   └── tracing/               #   OpenTelemetry tracing setup
-│   └── python/                    # Python shared packages
-│       ├── cryptoscope_shared/    #   kafka, logging, settings, tenant, tracing
-│       └── cryptoscope_proto/     #   generated protobuf stubs
-├── services/
-│   ├── ingest-service/            # Go — polls Binance, Coinbase; publishes ticks to Kafka
-│   ├── stream-processor/          # Go — consumes ticks, aggregates candles, stores in ClickHouse + Mongo
-│   ├── api-gateway/               # Go — HTTP→gRPC gateway, JWT auth, rate limiting, reverse proxy
-│   ├── command-service/           # Python/FastAPI — write-side: watchlists, alert rules → Kafka events
-│   ├── query-service/             # Python/FastAPI — read-side: candles, indicators, symbols
-│   └── alert-service/             # Python/FastAPI — consumes events, evaluates rules, emits triggers
-├── frontend/                      # React + TypeScript SPA (Vite, Tailwind, Recharts)
-│   ├── src/
-│   │   ├── api/client.ts          #   REST client for all backend endpoints
-│   │   ├── components/            #   Layout, CandleChart, IndicatorChart
-│   │   ├── pages/                 #   Dashboard, MarketData, Watchlists, AlertRules, Triggers, Health
-│   │   └── types/index.ts         #   shared TypeScript interfaces
-│   └── Dockerfile                 #   nginx production image
-├── migrations/
-│   └── command-service/           # Alembic migrations for the command service
-├── scripts/
-│   ├── bootstrap.sh               # seed demo tenant + watchlist
-│   └── gen_proto.sh               # protobuf stub generator
-├── deploy/                        # observability + deployment configs
-│   ├── fluent-bit/                #   Fluent Bit → Loki log shipping config
-│   ├── grafana-dashboards/
-│   ├── loki/                      #   Loki single-binary config
-│   ├── otel-collector.yaml
-│   └── prometheus.yaml
-├── docker-compose.yml             # full dev stack (13 services incl. data stores)
-├── docker-compose.prod.yml        # production stack for Docker Swarm (app tier + observability)
-├── docker-compose.tests.yml       # test/lint/proto runner services
-├── Dockerfile.proto               # protobuf toolchain image
-├── Dockerfile.test.python         # Python test image with dev deps
-├── Makefile                       # all developer commands
-├── go.work                        # Go workspace
-├── AGENTS.md                      # this file
-└── docs/
-    ├── architecture.md            # system architecture, data flow, design decisions
-    ├── DEPLOYMENT.md              # local and production deployment, env vars
-    ├── production.md              # production deployment with K8s, scaling, backup
-    ├── testing.md                 # test commands, conventions, how tests run
-    ├── SECURITY.md                # security posture, auth, known dev-mode gaps
-    ├── CONTRIBUTING.md            # how to contribute, code conventions, workflow
-    ├── roadmap.md                 # phased development roadmap
-    ├── TROUBLESHOOTING.md         # common issues and fixes
-    ├── CHANGELOG.md               # version history
-    └── adr/                       # architecture decision records
-```
+- Read the closest service README, relevant package code, and the related docs.
+- Treat implementation and configuration as authoritative when they differ from prose; update the affected docs in the same change.
+- Keep changes scoped. Do not commit unless the user asks.
+- Do not claim tests, lint, deployment, or runtime behavior was verified unless you ran the corresponding command or inspected direct evidence.
 
-## Documentation
+## Commands
 
-Detailed docs live in `docs/`:
+Docker Compose v2 is the expected environment. Common Make targets:
 
-- **docs/architecture.md** — full system diagram, service responsibilities, data stores, design decisions
-- **docs/DEPLOYMENT.md** — local dev setup, env vars, service ports
-- **docs/production.md** — production deployment, K8s manifests, scaling, backup
-- **docs/testing.md** — test commands, conventions, writing new tests
-- **docs/security.md** — auth, multi-tenancy, rate limiting, known issues
-- **docs/CONTRIBUTING.md** — contribution workflow and code conventions
-- **docs/roadmap.md** — phased development roadmap
-- **docs/TROUBLESHOOTING.md** — common issues and fixes
-- **docs/API.md** — full REST and gRPC API reference
-- **docs/guides/usage.md** — API usage guide with curl examples
-- **docs/guides/development.md** — local dev setup, workflows, project structure
-- **docs/CHANGELOG.md** — version history
-- **docs/adr/** — architecture decision records
+| Command | Effect |
+| --- | --- |
+| `make up` | Build and start the complete local stack |
+| `make up-all` | Start backend containers and run Vite on the host |
+| `make down` | Stop the stack and remove Compose volumes |
+| `make ps`, `make logs`, `make restart svc=<service>` | Inspect or restart services |
+| `make seed` | Seed the local demo watchlist and alert rule via the gateway |
+| `make migrate` / `make migrate-new msg="..."` | Apply or create command-service Alembic migrations |
+| `make proto` | Regenerate Go and Python protobuf bindings |
+| `make test`, `make test-go`, `make test-python`, `make test-frontend` | Run test suites in containers |
+| `make lint` | Run Go, Python, and frontend checks in containers |
+| `make frontend` / `make frontend-dev` | Build or serve the frontend |
+| `make k8s-build`, `make k8s-deploy`, `make k8s-status` | Build images or operate the Kustomize deployment |
+| `make swarm-secrets`, `make swarm-deploy`, `make swarm-remove` | Prepare and operate the Swarm stack |
 
-## Architecture
+Use `make help` and the Makefile for the current complete target list. There is no `make bootstrap` target; the demo data command is `make seed`.
 
-```
-Exchange APIs (Binance, Coinbase)
-        │
-        ▼
-  ingest-service (Go) ──► Kafka (market.ticks.raw)
-        │
-        ▼
-  stream-processor (Go) ──► ClickHouse (candles)
-                          ──► Mongo   (latest state)
-        │
-        ├── query-service (Python) ◄── gRPC ── api-gateway (Go) ◄── HTTP ── Client
-        │                                              │
-        └── command-service (Python) ◄── HTTP ─────────┘
-                 │
-                 └──► Kafka (domain.events) ──► alert-service (Python)
-                                                      │
-                                                      └──► PostgreSQL (alert_triggers)
-```
+## Service boundaries and data flow
 
-See `docs/architecture.md` for the full breakdown.
+`ingest-service` polls Binance and Coinbase and publishes ticks to Kafka. `stream-processor` consumes those ticks, archives them to MongoDB, writes candles to ClickHouse, and publishes candle events. `query-service` exposes ClickHouse reads through REST and gRPC. `command-service` owns PostgreSQL writes for watchlists and alert rules. `alert-service` consumes domain events and writes trigger history to PostgreSQL. `api-gateway` authenticates and routes client HTTP/SSE traffic.
 
-## All Makefile commands
+Redis is used by the gateway rate limiter and ingestion dedupe store. Notification implementations currently include SMTP email, Slack webhook, Telegram bot, and a generic webhook. Real-time candle delivery is SSE.
 
-### Stack lifecycle
-| Command | Description |
-|---------|-------------|
-| `make up` | Start all services (backend + frontend via Docker) |
-| `make up-all` | Start backend Docker services + frontend dev server with hot-reload |
-| `make down` | Stop stack and remove volumes |
-| `make build` | Build all Docker images without starting |
-| `make restart svc=<name>` | Restart a single service |
-| `make ps` | List running services |
-| `make logs` | Tail logs from all services |
-| `make clean` | Remove all containers, volumes, and build cache |
-| `make swarm-secrets` | Create Docker secrets from `./secrets/` files (idempotent) |
-| `make swarm-deploy` | Deploy the production stack to a Swarm manager |
-| `make swarm-remove` | Remove the Swarm stack |
+## Conventions
 
-### Shell access
-| Command | Description |
-|---------|-------------|
-| `make shell svc=<name>` | Open shell in a running service container |
-| `make shell-go` | Interactive Go dev shell with source mounted |
-| `make shell-python` | Interactive Python dev shell with source mounted |
+- Go: run `gofmt`; follow each module's existing package boundaries and `go.mod` replacement setup.
+- Python: follow the service's `pyproject.toml`, Ruff, mypy, and async conventions.
+- Frontend: TypeScript/React conventions in `frontend/`; use `npm run lint` and the existing Vitest setup when validation is requested.
+- Keep tenant identity derived from a verified gateway JWT in non-development use and propagate it to every tenant-scoped store operation. Alert-service routes currently have known isolation gaps; see the roadmap before editing those routes.
+- Keep credentials out of source control. Production settings use mounted secret files where supported; review `docs/production.md` because not all deployment secrets are wired uniformly.
+- Preserve protobuf as the contract source and regenerate bindings with `make proto` after contract changes.
+- Use structured logging through the shared packages. Avoid printing credentials or tokens.
 
-### Database
-| Command | Description |
-|---------|-------------|
-| `make migrate` | Run pending Alembic migrations |
-| `make migrate-new msg="description"` | Create a new autogenerated migration |
-| `make seed` | Seed demo tenant + tracked symbols |
+## Scope and validation
 
-### Protobuf
-| Command | Description |
-|---------|-------------|
-| `make proto` | Regenerate Go and Python stubs from proto/ |
+Follow the user’s request for tests and verification. If requested, run the narrowest relevant Make target first, then broader checks as needed. The project’s test runner uses Docker and bind mounts. Do not commit unless explicitly requested.
 
-### Frontend
-| Command | Description |
-|---------|-------------|
-| `make frontend` | Build the React frontend for production |
-| `make frontend-dev` | Start Vite dev server on the host |
+## Documentation map
 
-### Testing
-| Command | Description |
-|---------|-------------|
-| `make test` | Run **all** Go + Python tests (what you want) |
-| `make test-go` | All Go tests (3 services + 8 libs) |
-| `make test-python` | All Python tests (3 services + libs) |
-| `make test-ingest` | Single service: ingest-service |
-| `make test-processor` | Single service: stream-processor |
-| `make test-gateway` | Single service: api-gateway |
-| `make test-command` | Single service: command-service |
-| `make test-query` | Single service: query-service |
-| `make test-alert` | Single service: alert-service |
-| `make test-frontend` | Frontend Vitest suite in Docker |
-| `make test-libs-go` | All Go shared library tests |
-| `make test-libs-python` | All Python shared library tests |
-
-### Linting
-| Command | Description |
-|---------|-------------|
-| `make lint` | Run all Go + Python + frontend linters |
-| `make lint-go` | gofmt + go vet on all Go code |
-| `make lint-python` | ruff + mypy on all Python code |
-| `make lint-frontend` | TypeScript type check on frontend code |
-
-## How tests work
-
-All commands in the Makefile route through `docker-compose.tests.yml`. Source
-code is mounted as a bind volume — edit on the host, re-run the test, no image
-rebuild needed.
-
-```bash
-# Under the hood, `make test-ingest` runs:
-docker compose -f docker-compose.tests.yml run --rm test-ingest
-```
-
-### Go tests
-Run inside `golang:1.25-alpine` containers. Each service module is independent
-(go.mod with replace directives). The `test-libs-go` service iterates over all
-8 library sub-modules.
-
-### Python tests
-Run inside pre-built images that cache `pip install ".[dev]"`. Building images
-happens once, then test containers start in ~0.1s.
-
-```
-make build   # builds production images
-# Test images built automatically on first `make test-*`
-```
-
-### Frontend tests / lint
-The frontend TypeScript type check runs inside `node:22-alpine`:
-```
-make lint-frontend
-```
-
-## Code conventions
-
-### Go
-- Format: `gofmt` (enforced by `make lint-go`)
-- Standard project layout per module (cmd/, internal/)
-- Dependencies use `go.mod` replace directives for local libs
-- `go vet ./...` must pass (enforced by `make lint-go`)
-
-### Python
-- Format: `ruff` (enforced by `make lint-python`)
-- Type checks: `mypy` must pass (enforced by `make lint-python`)
-- All services use `pyproject.toml` with `hatchling` build backend
-- FastAPI apps use `src` package layout (`app/` directory)
-- Tests go in a `tests/` directory at the service root
-- Async test fixtures use `@pytest.fixture` and `async def`
-- All test files are prefixed `test_`
-
-### Testing conventions
-- Write the test alongside the behavior it covers
-- Prefer in-memory fakes over mocks for Go interfaces
-- Python tests use pytest with `asyncio_mode = "auto"`
-- Every domain error should have a corresponding test
-- Table-driven tests for parsing/enum logic
-
-### Logging
-- Log in structured JSON. Do not use plain print statements.
-- Go: use `slog` with `logging.New(service, level)`
-- Python: use `structlog` with `configure_logging(service, level)`
-- Every log line carries `service`, `tenant_id`, and `trace_id` when available
-
-### Other
-- Every tenant-scoped query must filter by `tenant_id`
-- Keep changes feature scoped and commit them that way
-- Prefer extending shared libs over copying helpers between services
-- Protobuf is the source of truth for service contracts
-
-## Git conventions
-
-- Author: `Mojtaba Michael <mojimich2015@gmail.com>`
-- Commits span 2026-05-15 → present with natural spacing
-- Use the helper for backdated commits:
-  ```bash
-  GIT_AUTHOR_DATE="$when" GIT_COMMITTER_DATE="$when" git commit -q -m "$message"
-  ```
-  where `$when` is a format like `"2026-06-01 14:30:00 +0000"`
-- Commit messages are concise, lowercase, no trailing period
-- Do not commit unless asked
-
-## Common workflows
-
-### Add a new Go library
-1. Create `libs/go/<name>/` with `go.mod` and source
-2. Update `docker-compose.tests.yml` — add module to `test-libs-go` loop
-3. Update `Makefile` — add to `GO_SERVICE_NAMES` if it's a service
-
-### Add a new Python library
-1. Add code under `libs/python/cryptoscope_shared/`
-2. Add tests in `libs/python/tests/`
-3. Regenerate proto stubs if needed: `make proto`
-
-### Add a database migration
-```bash
-make migrate-new msg="add alert_acknowledged column"
-# Edit the generated file in migrations/command-service/
-make migrate
-```
-
-### Debug a single service
-```bash
-make up              # start everything
-make logs            # tail all logs
-make shell svc=<name>  # dive into a container
-# Or run just its tests in isolation:
-make test-command    # e.g. for command-service
-```
-
-### Full iteration loop
-```bash
-# 1. Edit code on the host
-# 2. Run relevant tests (no rebuild needed):
-make test-gateway
-# 3. Restart the service with new code:
-make restart svc=api-gateway
-# 4. Check logs:
-make logs
-```
+Start at `README.md`; current system behavior is described in `docs/architecture.md`, endpoints in `docs/API.md`, setup in `docs/DEPLOYMENT.md`, production constraints in `docs/production.md`, security in `docs/SECURITY.md`, and outstanding work in `docs/roadmap.md`. ADRs and dated superpowers plans/specs are historical design records; annotate them when they no longer match current implementation rather than silently treating them as current behavior.

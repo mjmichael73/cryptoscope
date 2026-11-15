@@ -1,302 +1,65 @@
-# API Usage Guide — cryptoscope
+# API usage guide
 
-This guide walks through every API endpoint with working `curl` examples.
-The gateway runs at `http://localhost:8080` in local dev.
+Examples target the local gateway at `http://localhost:8080`. With local `DEV_MODE=true`, supply the seeded tenant UUID for command-service operations:
 
-## Prerequisites
-
-Start the stack and seed demo data:
-
-```bash
-make up
-make seed
+```sh
+export API=http://localhost:8080
+export TENANT=11111111-2222-3333-4444-555555555555
 ```
 
-Wait a few seconds for the ingest service to start polling exchanges and
-the stream processor to begin writing candles.
+In a non-development environment, obtain a valid Keycloak access token and use `Authorization: Bearer ...`; the gateway derives tenant identity from its verified `tenant_id` claim. Do not trust a client-supplied tenant query parameter for authorization.
 
----
+## Health
 
-## Health checks
-
-### Gateway health
-
-```bash
-curl http://localhost:8080/healthz
+```sh
+curl "$API/healthz"
+curl "$API/healthz/command-service"
+curl "$API/healthz/alert-service"
 ```
 
-```json
-{ "status": "ok" }
+The gateway `/healthz` reports gateway process health. Proxied health endpoints are simple service checks and may not verify every database dependency.
+
+## Query market data
+
+```sh
+curl "$API/v1/symbols"
+curl "$API/v1/symbols/search?q=BTC&limit=20"
+curl "$API/v1/candles?symbol=BTCUSDT&interval=1m"
+curl "$API/v1/indicators?symbol=BTCUSDT&type=sma&interval=1m&period=14"
 ```
 
-### Downstream health
+`from_ms` and `to_ms` use Unix milliseconds. The candle gateway defaults to the last 24 hours. Available indicator calculations are implemented by query-service; see [API reference](../API.md).
 
-```bash
-curl http://localhost:8080/healthz/alert-service
-curl http://localhost:8080/healthz/command-service
+## Create and manage a watchlist
+
+```sh
+curl -X POST "$API/v1/watchlists" \
+  -H 'Content-Type: application/json' \
+  -H "X-Tenant-Id: $TENANT" \
+  -H 'Idempotency-Key: example-watchlist-001' \
+  -d '{"name":"Core markets","symbols":["BTCUSDT","ETHUSDT"]}'
+
+curl -H "X-Tenant-Id: $TENANT" "$API/v1/watchlists"
 ```
 
----
+The frontend generates a fresh idempotency key for each non-GET request. Reuse a key only when retrying the same logical create operation.
 
-## Query endpoints (read side)
+## Create an alert rule
 
-### List symbols
-
-Returns all symbols currently tracked for the tenant.
-
-```bash
-curl http://localhost:8080/v1/symbols
+```sh
+curl -X POST "$API/v1/alert-rules" \
+  -H 'Content-Type: application/json' \
+  -H "X-Tenant-Id: $TENANT" \
+  -H 'Idempotency-Key: example-alert-001' \
+  -d '{"symbol":"BTCUSDT","comparator":"above","threshold":100000,"interval":"1m","cooldown_seconds":300}'
 ```
 
-```json
-{
-  "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-}
-```
+Supported comparators are `above`, `below`, `crosses_above`, `crosses_below`, `pct_change_above`, `pct_change_below`, `rsi_above`, and `rsi_below`. Trigger evaluation depends on candle events and configured interval/window values.
 
-### Get candles
+## Alert history caution
 
-Fetch OHLCV candlestick data. Defaults to the last 24 hours of 1-minute candles.
+The UI uses alert-service routes for rule and trigger history, acknowledgment, and clearing. Those routes currently lack consistent tenant enforcement. Do not use caller-provided `tenant_id` as a security boundary or expose these operations to multi-tenant users until the [P1 roadmap finding](../roadmap.md) is fixed.
 
-```bash
-# Default: last 24h of 1m candles for BTC
-curl "http://localhost:8080/v1/candles?symbol=BTCUSDT"
+## Export and live updates
 
-# 1-hour candles
-curl "http://localhost:8080/v1/candles?symbol=BTCUSDT&interval=1h"
-
-# Custom time range (Unix milliseconds)
-FROM_MS=$(($(date +%s) * 1000 - 3600000))  # 1 hour ago
-TO_MS=$(($(date +%s) * 1000))              # now
-curl "http://localhost:8080/v1/candles?symbol=BTCUSDT&interval=5m&from_ms=$FROM_MS&to_ms=$TO_MS"
-```
-
-```json
-{
-  "candles": [
-    {
-      "open_time_ms": 1692000000000,
-      "open": 29000.50,
-      "high": 29100.00,
-      "low": 28950.25,
-      "close": 29050.75,
-      "volume": 125.34
-    }
-  ]
-}
-```
-
-**Supported intervals**: `1m`, `5m`, `1h`, `1d`
-
-### Get indicators
-
-Compute a technical indicator over a candle series.
-
-```bash
-# Simple Moving Average (period=14)
-curl "http://localhost:8080/v1/indicators?symbol=BTCUSDT&type=sma&interval=1h&period=14"
-
-# Exponential Moving Average
-curl "http://localhost:8080/v1/indicators?symbol=BTCUSDT&type=ema&interval=1h&period=20"
-
-# Rolling volatility (standard deviation)
-curl "http://localhost:8080/v1/indicators?symbol=BTCUSDT&type=volatility&interval=1h&period=10"
-```
-
-```json
-{
-  "points": [
-    { "time_ms": 1692000600000, "value": 29033.75 }
-  ]
-}
-```
-
-**Supported types**: `sma`, `ema`, `volatility`
-
----
-
-## Command endpoints (write side)
-
-All write endpoints require an `Idempotency-Key` header to prevent duplicate
-operations. Use any unique string (UUID recommended).
-
-### Create a watchlist
-
-```bash
-curl -X POST http://localhost:8080/v1/watchlists \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{
-    "name": "My Portfolio",
-    "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-  }'
-```
-
-```json
-{ "id": "550e8400-e29b-41d4-a716-446655440000" }
-```
-
-### Create an alert rule
-
-Trigger an alert when a symbol crosses a price threshold.
-
-```bash
-# Alert when BTC goes above $30,000
-curl -X POST http://localhost:8080/v1/alert-rules \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{
-    "symbol": "BTCUSDT",
-    "comparator": "above",
-    "threshold": 30000.00
-  }'
-```
-
-```json
-{ "id": "660e8400-e29b-41d4-a716-446655440001" }
-```
-
-**Comparators**: `"above"`, `"below"`
-
----
-
-## Alert endpoints (read side)
-
-### List alert rules
-
-```bash
-# All rules
-curl http://localhost:8080/v1/alert-rules
-
-# Filter by tenant
-curl "http://localhost:8080/v1/alert-rules?tenant_id=demo-tenant"
-```
-
-```json
-[
-  {
-    "id": "660e8400-e29b-41d4-a716-446655440001",
-    "tenant_id": "demo-tenant",
-    "symbol": "BTCUSDT",
-    "comparator": "above",
-    "threshold": 30000.00,
-    "status": "active",
-    "created_at": "2026-08-20T12:00:00Z",
-    "updated_at": "2026-08-20T12:00:00Z"
-  }
-]
-```
-
-### Get a single alert rule
-
-```bash
-curl http://localhost:8080/v1/alert-rules/660e8400-e29b-41d4-a716-446655440001
-```
-
-### List alert triggers
-
-```bash
-# Recent triggers
-curl http://localhost:8080/v1/triggers
-
-# Limit results
-curl "http://localhost:8080/v1/triggers?limit=10"
-
-# Filter by tenant
-curl "http://localhost:8080/v1/triggers?tenant_id=demo-tenant&limit=20"
-```
-
-```json
-[
-  {
-    "id": "770e8400-e29b-41d4-a716-446655440002",
-    "tenant_id": "demo-tenant",
-    "rule_id": "660e8400-e29b-41d4-a716-446655440001",
-    "symbol": "BTCUSDT",
-    "comparator": "above",
-    "threshold": 30000.00,
-    "current_value": 30150.25,
-    "triggered_at": "2026-08-20T14:30:00Z",
-    "acknowledged": false
-  }
-]
-```
-
----
-
-## Error responses
-
-All errors return a JSON body with a description:
-
-```bash
-# Missing required parameter
-curl "http://localhost:8080/v1/candles"
-# 400: { "error": "symbol is required" }
-
-# Duplicate idempotency key
-KEY=$(uuidgen)
-curl -X POST http://localhost:8080/v1/watchlists \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: $KEY" \
-  -d '{"name": "Test", "symbols": []}'
-curl -X POST http://localhost:8080/v1/watchlists \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: $KEY" \
-  -d '{"name": "Test", "symbols": []}'
-# 409: { "detail": "..." }
-
-# Unsupported indicator type
-curl "http://localhost:8080/v1/indicators?symbol=BTCUSDT&type=rsi&interval=1h&period=14"
-# 422: { "detail": "unsupported indicator: rsi" }
-```
-
----
-
-## Using the frontend
-
-The React frontend at `http://localhost:5173` provides a UI for all of the
-above. Open it in your browser after `make up` to see live candlestick charts,
-manage watchlists, create alert rules, and view triggers.
-
-The frontend proxies `/api` to the gateway at `http://localhost:8080` and
-`/auth` to Keycloak at `http://localhost:8081` via the Vite dev server
-(configured in `frontend/vite.config.ts`). Start the dev Keycloak profile to
-use OIDC sign-in:
-
-```bash
-docker compose --profile dev up -d keycloak
-```
-
-Sign in with `demo@cryptoscope.local` and the password configured by
-`KEYCLOAK_DEMO_PASSWORD` in `.env` (default `demo-password`). The Login page
-also offers a local demo shortcut when `VITE_DEV_AUTH=1`. After sign-in,
-Watchlists supports create, edit, and delete; Alert Rules supports rule
-creation and deletion; Triggers supports acknowledgment and clearing
-acknowledged or all history. Cross-tenant resources are not visible to the
-signed-in tenant.
-
----
-
-## Using gRPC directly
-
-The query service exposes a gRPC API on port `9001` for internal service
-communication. You can test it with `grpcurl`:
-
-```bash
-# List available services
-grpcurl -plaintext localhost:9001 list
-
-# Get candles
-grpcurl -plaintext -d '{
-  "tenant_id": "demo-tenant",
-  "symbol": "BTCUSDT",
-  "interval": "INTERVAL_1H",
-  "from_ms": 0,
-  "to_ms": 9999999999999
-}' localhost:9001 cryptoscope.v1.QueryService/GetCandles
-
-# List symbols
-grpcurl -plaintext -d '{
-  "tenant_id": "demo-tenant"
-}' localhost:9001 cryptoscope.v1.QueryService/ListSymbols
-```
+`GET /v1/candles/export?symbol=BTCUSDT&format=csv` currently returns JSON with a `format` field, not a CSV download. The SSE endpoint also does not yet serve the requesting tenant/symbol and cannot use the frontend's Bearer token with the native `EventSource` flow. These paths are documented as current limitations in the [API reference](../API.md).

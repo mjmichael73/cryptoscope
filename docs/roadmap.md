@@ -1,90 +1,93 @@
-# Roadmap — cryptoscope
+# Roadmap and review findings
 
-## Current state
+Status reviewed on **November 15, 2026** against the checked-in source and deployment configuration. Checkboxes describe repository evidence, not production verification. No test suites or deployments were run for this review.
 
-The platform has a working end-to-end pipeline: exchange data flows through Kafka, is aggregated into candles, stored in ClickHouse, and served through the API gateway. The command side supports watchlists and alert rules. The frontend is a functional SPA.
+## Current capability
 
-**Working**: ingestion, stream processing, candle storage, query API, command API, alert evaluation, frontend dashboard
+The repository contains application paths for polling Binance/Coinbase, producing Kafka ticks, creating interval candles, querying candle and symbol coverage, managing watchlists and alert rules, evaluating alert triggers, sending optional notifications, and presenting the data through a React SPA. The gateway supports Keycloak JWT validation, rate limiting, tenant propagation, and an SSE endpoint whose current implementation is incomplete. The local Compose file relies on external PostgreSQL/network setup and is not a self-contained stack.
 
-**Needs work**: security hardening, production readiness, expanded analytics, operational maturity
+Kubernetes and Swarm deployment definitions exist, but their presence does not establish a complete or secure production deployment. Kubernetes base manifests expect external infrastructure/secrets, the staging overlay enables auth bypass, and the Swarm file wires external services and secrets. Resolve the findings below before exposing a multi-tenant deployment.
 
----
+## Prioritized confirmed bugs
 
-## Phase 1 — Security hardening 🔴
+These were found by static inspection. The documentation change records them; it does not change runtime code.
 
-Priority: critical. The dev stack bypasses authentication and uses hardcoded credentials.
+### P1 — Alert routes do not enforce tenant ownership
 
-- [x] Disable `DEV_MODE` in production and complete Keycloak JWT validation
-- [x] Move all database credentials to a secrets manager (Vault or cloud)
-- [x] Remove hardcoded passwords from `docker-compose.yml` (keep for local dev only)
-- [x] Enable Redis AUTH and TLS in production config
-- [x] Add CORS restrictions to the gateway for production origins
-- [x] Enable TLS for Kafka (SASL_SSL) in production client configuration
+`services/alert-service/app/api/routes.py` accepts optional caller-supplied `tenant_id` filters for listing rules and triggers. The gateway forwards the authenticated tenant in headers, but the alert routes do not derive scope from that identity. `get_alert_rule`, `acknowledge_trigger`, and `clear_triggers` query or mutate records without tenant predicates. A caller with a valid account can supply another tenant ID to read its lists, fetch a rule by ID, acknowledge another tenant's trigger, or delete trigger history across tenants. The service routes are reachable through authenticated gateway paths, so gateway authentication alone does not prevent this.
 
-## Phase 2 — Production readiness 🟠
+**Resolution:** require a trusted tenant identity at the alert-service boundary (or an equivalent verified internal contract), remove caller-selected tenant filters from public routes, and include tenant ID in every select/update/delete predicate. Add cross-tenant route tests for list, detail, acknowledge, and clear operations.
 
-Get the platform deployable to a real cluster.
+### P1 — Failed Kafka publish can permanently suppress an ingested tick
 
-- [x] Create Kubernetes manifests for all 6 services (`deploy/k8s/`)
-- [x] Add resource requests/limits and HPA scaling rules
-- [x] Implement readiness and liveness probes on all services
-- [x] Add a `docker-compose.prod.yml` for Docker Swarm as a simpler alternative
-- [x] Set up Fluent Bit or similar for log shipping to Elasticsearch/Loki
-- [x] Create a Helm chart or Kustomize overlay for environment-specific config
-- [x] Document the production deployment steps in `docs/DEPLOYMENT.md`
+`services/ingest-service/internal/pipeline/pipeline.go` calls `Deduper.FirstSeen` before publishing. `libs/go/idempotency/idempotency.go` commits the key immediately with `SETNX`; ingestion configures a 24-hour TTL. If Kafka publish fails, a later scheduler retry sees the key and skips the tick even though it was never published.
 
-## Phase 3 — Expanded analytics 🟡
+**Resolution:** make dedupe state represent successful publication, use a claim/complete or pending-state protocol, or use a transactional/outbox approach. Preserve concurrent duplicate protection and cover the publish-failure retry path.
 
-Add more analytical value to the candle data.
+### P1 — SSE does not serve the requesting tenant or market series
 
-- [x] Technical indicators: SMA, EMA, RSI, MACD, Bollinger Bands (in `query-service/app/domain/indicators.py`)
-- [x] Multi-timeframe candle aggregation (stream-processor already supports configurable intervals)
-- [x] Historical symbol search and discovery API (`GET /v1/symbols/search` with coverage metadata)
-- [x] Export candles as CSV/JSON from the query API
-- [x] Real-time updates via SSE candle streaming (gateway `StreamHub` → frontend `useCandleStream`)
+`services/api-gateway/internal/gateway/stream.go` polls ClickHouse with an empty tenant ID and hardcodes `BTCUSDT`; it does not read the authenticated tenant, requested symbol, or requested interval. The frontend opens the stream without query parameters and expects updates for its selected symbol and interval. In addition, browser `EventSource` cannot attach the Bearer token stored by the frontend, so the authenticated production gateway rejects the connection. The stream is therefore unusable for ordinary production sessions and does not match the client’s selected series.
 
-## Phase 4 — Alerting improvements 🟡
+**Resolution:** define a tenant-bound stream request contract, authorize it using a transport that supports credentials (or a short-lived stream token), query only the authenticated tenant and requested series, and cover reconnect and isolation behavior.
 
-The alert pipeline works but is minimal.
+### P2 — Production browser writes fail CORS preflight
 
-- [x] Support more than above/below comparators (crossing, percentage change, RSI thresholds)
-- [x] Add notification channels: email (SMTP), Slack webhooks, Telegram bot
-- [x] Alert cooldown/throttle to avoid notification storms
-- [x] Alert rule templates for common patterns (e.g., "alert if BTC drops 5% in 1 hour")
-- [x] Dashboard for alert history and acknowledgment
+`services/api-gateway/internal/gateway/security.go` allows `Content-Type`, `Authorization`, and tenant headers, but omits `Idempotency-Key`. The frontend adds that header to every non-GET request in `frontend/src/api/client.ts`. A browser frontend on a separate allowed origin will preflight these requests and refuse to send them because the required header is not listed in `Access-Control-Allow-Headers`.
 
-## Phase 5 — Frontend polish 🟢
+**Resolution:** allow `Idempotency-Key` and test preflight with the exact headers used by the frontend.
 
-The frontend is functional but basic.
+### P2 — Gateway candle export ignores the requested format
 
-- [x] Add OIDC authentication flow (login page, session storage, token refresh)
-- [x] Watchlist management UI (create, edit, delete watchlists)
-- [x] Alert rule creation and management UI
-- [x] Trigger history, acknowledgment, and clearing UI
-- [x] Responsive design improvements for mobile
-- [x] WebSocket integration for real-time price updates — resolved with SSE streaming and automatic reconnect in `useCandleStream`
+`services/api-gateway/internal/gateway/gateway.go` implements `/v1/candles/export` by fetching candles and returning JSON with a `format` field. It does not emit CSV or delegate to query-service's CSV implementation. A `format=csv` request therefore receives JSON.
 
-## Phase 6 — Operations & reliability 🟢
+**Resolution:** implement the gateway response serialization and content headers for both formats, or proxy to the query-service export route; test downloaded CSV and JSON responses.
 
-Operational maturity for running in production.
+## Other correctness and reliability work
 
-- [ ] Chaos engineering tests (kill a Kafka broker, drop a ClickHouse node)
-- [ ] Load testing with k6 to establish performance baselines
-- [ ] SLO/SLI tracking and error budgets
-- [ ] Runbooks for common operational scenarios
-- [ ] Automated backup verification
-- [ ] On-call alerting for service health
+- **P2 — Clean-checkout Compose startup is not self-contained.** `docker-compose.yml` requires `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `MONGO_ROOT_USERNAME`, `MONGO_ROOT_PASSWORD`, and `POSTGRES_DSN`, references an external `shared-services-network`, and assumes PostgreSQL is already running there. The repository has no `.env.example` and does not define a Postgres service in this Compose file. Either include PostgreSQL and an example local environment/network setup, or provision/document the shared dependency as an explicit prerequisite. Ensure first-run instructions work from a clean checkout.
+- **P2 — Failed exchange fetches can look like empty successful batches.** `services/ingest-service/internal/source/coinbase.go` skips per-product errors and returns nil error; Binance may return a successful empty result when requested symbols are absent. Add structured per-source failure/coverage metrics and make empty or partial data visible to operators. Confirm desired retry policy.
+- **P2 — Malformed tick messages are acknowledged after being dropped.** `services/stream-processor/internal/etl/etl.go` logs malformed JSON and returns nil, allowing the consumer to commit the message. Decide whether to quarantine to a dead-letter topic or intentionally discard with a counter and alert.
+- **P2 — Coinbase USD prices are labeled as USDT symbols.** `toProduct` maps `BTCUSDT` to Coinbase `BTC-USD`, but the resulting USD price is published with the original `BTCUSDT` symbol and combined with Binance USDT prices. This mixes quote currencies in candle aggregation. Normalize symbols by quote currency, convert explicitly, or keep source-specific series.
+- **P2 — Alert evaluation uses process-local price history.** `services/alert-service/app/infra/consumer.py` keeps rolling closes in `PriceHistory`; a restart loses prior samples required for percentage-change/window comparisons. Persist or reconstruct history, or document and surface the warm-up behavior.
 
----
+## Delivery priorities
 
-## Success criteria
+### 1. Tenant and request security
 
-| Metric                    | Target           | Current          |
-| ------------------------- | ---------------- | ---------------- |
-| Auth in production        | Keycloak JWT     | Gateway enforces Keycloak JWT; local dev supports OIDC and explicit bypass |
-| Test coverage             | > 80%            | Partial; Go, Python, and frontend suites run in Docker |
-| API p95 latency           | < 100ms          | Unknown          |
-| Uptime                    | 99.9%            | Local dev only   |
-| Alert notification channels | ≥ 2 (email + Slack) | Email, Slack, Telegram, generic webhook |
-| Kubernetes deployable     | Yes              | Yes — manifests, overlays, HPAs |
-| Documentation             | Complete         | Core API, deployment, security, and usage docs maintained |
+- [ ] Enforce tenant scope on every alert-service read and mutation, with cross-tenant regression coverage.
+- [ ] Include `Idempotency-Key` in production CORS allow headers and validate browser preflight.
+- [ ] Review internal service exposure and require authentication/network policy at the service boundary where traffic can bypass the gateway.
+- [ ] Remove or clearly gate the staging `DEV_MODE=true` overlay before any shared or externally reachable staging environment.
+
+### 2. Data integrity
+
+- [ ] Correct ingestion dedupe ordering so publish failures remain retryable.
+- [ ] Decide and implement dead-letter handling for malformed processor messages.
+- [ ] Prevent mixed USD/USDT source values from entering the same candle series.
+- [ ] Add explicit partial-source/empty-poll observability.
+- [ ] Define restart behavior for alert windows and preserve required history.
+
+### 3. Production operations
+
+- [ ] Add load tests and publish measured API/streaming latency and throughput baselines.
+- [ ] Define service-level indicators, objectives, alert thresholds, and operational runbooks.
+- [ ] Verify backups and restore procedures for PostgreSQL, ClickHouse, MongoDB, Kafka, Redis, and observability state as applicable.
+- [ ] Exercise broker, database, and downstream outage recovery and consumer replay behavior.
+- [ ] Document supported production topology, required external infrastructure, and secret delivery for both Swarm and Kubernetes.
+
+## Capability follow-ups
+
+- [ ] Decide whether to add persistent market-source coverage/quality status.
+- [ ] Revisit analytics breadth after data-series semantics are corrected.
+- [ ] Keep SSE behavior and authentication documented as it evolves; no WebSocket endpoint is implemented.
+
+## Targets and evidence
+
+| Measure | Target | Current evidence |
+| --- | --- | --- |
+| Tenant data isolation | No cross-tenant reads or writes | Known alert-service authorization gaps listed above |
+| API p95 latency | Establish target after load test | Not measured in this review |
+| Availability objective | Define SLO and error budget | Not established |
+| Tests | Meaningful tests for critical paths | Go, Python, and frontend test targets exist; not run for this review |
+| Notifications | Multiple optional channels | SMTP, Slack, Telegram, and generic webhook implementations exist |
+| Production deployment | Repeatable secure deploy and restore | Compose, Swarm, and Kustomize assets exist; integration and recovery not verified |

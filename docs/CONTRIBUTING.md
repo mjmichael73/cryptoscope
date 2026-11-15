@@ -1,117 +1,30 @@
-# Contributing — cryptoscope
+# Contributing
 
-## Getting started
+Keep changes focused and update documentation when behavior or operations change. Do not commit generated secrets, credentials, local data, or build output.
 
-The only host dependency is Docker. Everything else runs inside containers.
+## Workflow
 
-```bash
-git clone <repo-url> && cd cryptoscope
-cp .env.example .env
-make up            # start the full stack
-make test          # verify everything passes
-```
-
-## Development workflow
-
-### 1. Create a branch
-
-```bash
-git checkout -b feature/my-change
-```
-
-### 2. Make changes and run tests
-
-Tests run via Docker and mount your source as a bind volume — no rebuild needed:
-
-```bash
-# Run the specific service you're working on
-make test-gateway      # Go gateway changes
-make test-query        # Python query-service changes
-make test-command      # Python command-service changes
-
-# Run all tests before pushing
-make test
-```
-
-### 3. Run linters
-
-```bash
-make lint              # all linters (Go + Python + frontend)
-make lint-go           # just Go: gofmt + go vet
-make lint-python       # just Python: ruff + mypy
-make lint-frontend     # just frontend: tsc --noEmit
-```
-
-### 4. Restart the service to test manually
-
-```bash
-make restart svc=api-gateway    # restart a single service
-make logs                       # tail all logs
-```
+1. Inspect the service boundary, current tests, and related documentation before editing.
+2. Make the smallest coherent change and update protobuf bindings if the contract changed (`make proto`).
+3. Run the narrowest relevant test or lint target, then broader checks when the change crosses service boundaries.
+4. Report commands run and any checks that could not be completed. Do not claim runtime behavior from static inspection alone.
+5. Commit only when explicitly requested.
 
 ## Code conventions
 
-### Go
+- Go: format with `gofmt`; keep service internals in their existing module/package structure.
+- Python: use the service `src`/`app` package layout, Ruff formatting/lint rules, type annotations, and async patterns.
+- Frontend: follow the TypeScript/React patterns in `frontend/src`; preserve accessible labels and keyboard behavior.
+- Keep tenant identity explicit in every tenant-scoped operation. Cross-tenant denial belongs in tests.
+- Keep API contracts in protobuf where the services communicate through gRPC.
+- Use shared logging/config/tracing packages when appropriate. Never log secrets or bearer tokens.
 
-- Format with `gofmt` (enforced by `make lint-go`)
-- Standard layout: `cmd/` for entrypoints, `internal/` for logic
-- Use `slog` for structured logging, not `fmt.Println`
-- Prefer table-driven tests
-- Use in-memory fakes over mocks for interfaces
+## Repository-specific notes
 
-### Python
+The environment is designed around Docker Compose. See [development](guides/development.md) and [testing](testing.md) for commands. `make seed` is the demo data command. There is no `make bootstrap` target in the current Makefile.
 
-- Format with `ruff` (enforced by `make lint-python`)
-- Type check with `mypy` (enforced by `make lint-python`)
-- Use `structlog` for structured logging, not `print()`
-- Services use `pyproject.toml` with `hatchling`
-- Tests use `pytest` with `asyncio_mode = "auto"`
-
-### Protobuf
-
-Service contracts live in `proto/cryptoscope/v1/` and are the source of truth. After changing `.proto` files:
-
-```bash
-make proto    # regenerate Go and Python stubs
-```
-
-### Frontend
-
-- React 19 + TypeScript + Vite + Tailwind CSS
-- Run `make lint-frontend` to check types
-- All API calls go through `frontend/src/api/client.ts`
-
-## Adding a new Go library
-
-1. Create `libs/go/<name>/` with `go.mod` and source
-2. Add tests in the same package
-3. Update `docker-compose.tests.yml` — add module to the `test-libs-go` loop
-4. Run `make test-libs-go` to verify
-
-## Adding a new Python library
-
-1. Add code under `libs/python/cryptoscope_shared/`
-2. Add tests in `libs/python/tests/`
-3. Run `make test-libs-python` to verify
-
-## Adding a database migration
-
-```bash
-make migrate-new msg="add column_name to table"
-# Edit the generated file in migrations/command-service/
-make migrate
-```
+Current implementation findings are listed in the [roadmap](roadmap.md), including alert tenant-scope issues and data-loss risks. Fixes to those findings should include targeted regression coverage.
 
 ## Commit conventions
 
-- Author: `Mojtaba Michael <mojimich2015@gmail.com>`
-- Messages are concise, lowercase, no trailing period
-- Start with a verb: add, fix, update, remove, refactor
-- Reference issues when applicable
-
-## Pull request process
-
-1. Ensure `make test` and `make lint` pass
-2. Update documentation if your change affects the public API or architecture
-3. Keep changes feature-scoped — one feature or fix per PR
-4. Open a PR against `main`
+The repository's contributor notes request concise lowercase commit messages without trailing punctuation. Preserve repository history and author configuration; do not backdate commits unless the user explicitly asks.

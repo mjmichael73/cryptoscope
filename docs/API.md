@@ -1,547 +1,81 @@
-# API Reference — cryptoscope
+# HTTP API
 
-All client-facing endpoints are served through the **api-gateway** at
-`http://localhost:8080` (local dev). The gateway handles authentication, rate
-limiting, and tenant resolution, then routes to the appropriate backend
-service.
+Client routes are exposed by `api-gateway` at `http://localhost:8080`. In Docker, the frontend nginx proxy exposes gateway paths under `/api/` and rewrites that prefix before forwarding.
 
-## Base URL
+## Authentication and tenant identity
 
-```
-http://localhost:8080
-```
+When `DEV_MODE=false`, `/v1/*` routes require `Authorization: Bearer <Keycloak access token>`. The gateway validates RS256 signature, issuer, audience, expiration, and required `tenant_id` claim, then forwards tenant headers. When `DEV_MODE=true`, JWT checks are bypassed; local requests can provide `X-Tenant-Id` and otherwise use the gateway's `demo-tenant` fallback. The frontend local demo proxy uses the demo tenant UUID.
 
-## Authentication
+Do not use development identity behavior in a shared deployment. Alert-service routes currently have tenant authorization gaps described in [the roadmap](roadmap.md).
 
-Outside development bypass mode, all `/v1/*` endpoints require a valid Keycloak JWT in the
-`Authorization` header:
+Create operations on watchlists and alert rules require `Idempotency-Key` at command-service. The frontend generates this header for non-GET requests. The production CORS middleware currently does not allow this header, so cross-origin browser writes fail preflight; same-origin frontend proxy requests are not subject to that restriction.
 
-```
-Authorization: Bearer <jwt-token>
-```
+## Gateway health
 
-In local dev (`DEV_MODE=true`), gateway authentication is bypassed and the
-tenant is resolved from `X-Tenant-Id` (or a default tenant if omitted). The
-frontend can also authenticate through the local Keycloak realm. Invalid or
-missing credentials when bypass is disabled return `401 Unauthorized`.
+| Method and path | Behavior |
+| --- | --- |
+| `GET /healthz` | Gateway process health response `{"status":"ok"}` |
+| `GET /healthz/command-service` | Proxy to command-service `/healthz` |
+| `GET /healthz/alert-service` | Proxy to alert-service `/healthz` |
 
-## Rate limiting
+These checks do not all verify datastore health. The gateway's own `/healthz` is not an upstream readiness check.
 
-All `/v1/*` endpoints are rate-limited per tenant using a Redis-backed token
-bucket:
+## Market data
 
-| Parameter               | Default | Description                   |
-| ----------------------- | ------- | ----------------------------- |
-| Requests per minute     | 120     | Sustained request rate        |
-| Burst                   | 40      | Max burst above the sustained rate |
+All routes below require gateway authentication outside development mode.
 
-Exceeding the limit returns `429 Too Many Requests`.
+| Method and path | Inputs | Success response |
+| --- | --- | --- |
+| `GET /v1/candles` | `symbol` required; `interval` defaults to `1m`; `from_ms`/`to_ms` Unix milliseconds default to the last 24 hours | `{"candles":[{ "open_time_ms", "open", "high", "low", "close", "volume" }]}` |
+| `GET /v1/indicators` | `symbol`, `type` required; `interval` defaults to `1m`; `period` parsed as integer | `{"points":[{"time_ms","value"}]}` |
+| `GET /v1/symbols` | — | `{"symbols":[...]}` |
+| `GET /v1/symbols/search` | `q` optional (max 100 characters); `limit` optional (1–200, default 50) | `{"symbols":[{"symbol","first_open_time_ms","last_open_time_ms","candle_count","intervals"}]}` |
+| `GET /v1/candles/export` | `symbol` required; `interval`, `from_ms`, `to_ms`, `format` optional | Currently returns JSON `{"candles":[...],"format":"..."}` for every requested format |
+| `GET /v1/candles/stream` | SSE connection | `connected` and `candle` events; current implementation does not apply the requested symbol/interval/tenant and has production authentication limitations (see roadmap) |
 
----
+Indicators accepted by query-service include `sma`, `ema`, `volatility`, `rsi`, `macd`, and `bollinger_bands`; behavior and parameters are implemented in `services/query-service/app/domain/indicators.py`. The gateway gRPC client surface passes only the indicator type and period, so do not assume all advanced indicator parameters are configurable through HTTP.
 
-## Health checks
+The gateway's export route currently labels a response with the requested `format` but serializes JSON. Query-service's internal HTTP route implements CSV and JSON, but the gateway does not proxy to it. Treat export as JSON until this is fixed.
 
-### `GET /healthz`
+## Watchlists and alert rules
 
-Returns the gateway's own health status.
+Command-service routes are proxied by the gateway:
 
-**Response** `200 OK`
+| Method and path | Purpose |
+| --- | --- |
+| `POST /v1/watchlists` | Create; requires `Idempotency-Key`; body `{ "name": string, "symbols": string[] }`; returns `201 {"id": string}` |
+| `GET /v1/watchlists` | List tenant watchlists |
+| `GET /v1/watchlists/{watchlist_id}` | Fetch a tenant watchlist |
+| `PUT /v1/watchlists/{watchlist_id}` | Replace name and symbols |
+| `DELETE /v1/watchlists/{watchlist_id}` | Delete a tenant watchlist; `204` on success |
+| `POST /v1/alert-rules` | Create an alert rule; requires `Idempotency-Key`; returns `201 {"id": string}` |
+| `DELETE /v1/alert-rules/{rule_id}` | Soft-delete an alert rule |
+| `GET /v1/alert-templates` | List built-in rule templates |
 
-```json
-{
-  "status": "ok"
-}
-```
+Create alert-rule body fields: `symbol`, `comparator`, `threshold`; optional `interval` (`1m`, `5m`, `1h`, `1d`), `window_seconds` (60–86400), and `cooldown_seconds` (minimum 1, default 300). Comparators are `above`, `below`, `crosses_above`, `crosses_below`, `pct_change_above`, `pct_change_below`, `rsi_above`, and `rsi_below`.
 
-### `GET /healthz/alert-service`
+Watchlist names must contain 1–128 characters. The response includes `id`, `tenant_id`, `name`, `symbols`, and `created_at`. Command-service is the owner of these writes.
 
-Proxied to the alert service's `/healthz` endpoint.
+## Alert rules and triggers
 
-### `GET /healthz/command-service`
+These paths are proxied to alert-service:
 
-Proxied to the command service's `/healthz` endpoint.
+| Method and path | Purpose |
+| --- | --- |
+| `GET /v1/alert-rules` | List rules; current implementation accepts optional `tenant_id` query filter |
+| `GET /v1/alert-rules/{rule_id}` | Fetch a rule by ID |
+| `GET /v1/triggers` | List triggers; accepts optional `tenant_id` and `limit` (default 50) |
+| `POST /v1/triggers/{trigger_id}/ack` | Mark a trigger acknowledged |
+| `DELETE /v1/triggers?acknowledged_only=true` | Delete all triggers or acknowledged triggers only |
 
----
+**Security note:** the current alert-service list/detail/mutation routes do not consistently enforce the authenticated tenant. Do not treat optional `tenant_id` as authorization. See the P1 roadmap issue and do not expose these paths in a multi-tenant deployment until fixed.
 
-## Query endpoints (read side)
+## Errors and rate limits
 
-The gateway calls the query service via gRPC on the backend.
+The gateway uses JSON `error` responses for its own validation and backend failures; FastAPI validation errors may use `detail`. Common statuses include `400` for gateway input checks, `401` for missing/invalid JWT, `404` for tenant-owned records not found in command-service, `409` for conflicts, `422` for FastAPI validation, `429` for rate limits, and `500` for backend failures. Exact mappings vary by route; consult the route implementation for edge cases.
 
-### `GET /v1/candles`
+The gateway applies a Redis-backed token bucket to `/v1/*`. Defaults are 120 requests per minute and burst 40. The limiter currently fails open if Redis errors or no limiter is supplied; production availability depends on Redis configuration.
 
-Returns OHLCV candlestick data for a symbol and interval.
+## Internal APIs
 
-**Query parameters**
-
-| Parameter  | Type   | Required | Default | Description                                  |
-| ---------- | ------ | -------- | ------- | -------------------------------------------- |
-| `symbol`   | string | yes      | —       | Trading pair (e.g. `BTCUSDT`, `ETHUSDT`)    |
-| `interval` | string | no       | `1m`    | Candle interval: `1m`, `5m`, `1h`, `1d`     |
-| `from_ms`  | int    | no       | 24h ago | Start time as Unix milliseconds             |
-| `to_ms`    | int    | no       | now     | End time as Unix milliseconds               |
-
-**Response** `200 OK`
-
-```json
-{
-  "candles": [
-    {
-      "open_time_ms": 1692000000000,
-      "open": 29000.50,
-      "high": 29100.00,
-      "low": 28950.25,
-      "close": 29050.75,
-      "volume": 125.34
-    }
-  ]
-}
-```
-
-**Errors**
-
-| Status | Body                                          | Cause                           |
-| ------ | --------------------------------------------- | ------------------------------- |
-| 400    | `{"error": "symbol is required"}`             | Missing `symbol` parameter      |
-| 422    | `{"detail": "unsupported interval: ..."}`     | Invalid interval value          |
-| 500    | `{"error": "query service error"}`            | Backend failure                 |
-
----
-
-### `GET /v1/indicators`
-
-Returns a computed technical indicator over a candle series.
-
-**Query parameters**
-
-| Parameter  | Type   | Required | Default | Description                                    |
-| ---------- | ------ | -------- | ------- | ---------------------------------------------- |
-| `symbol`   | string | yes      | —       | Trading pair                                   |
-| `type`     | string | yes      | —       | Indicator type: `sma`, `ema`, `volatility`     |
-| `interval` | string | no       | `1m`    | Candle interval to compute over                |
-| `period`   | int    | no       | 14      | Lookback window size (must be ≥ 1)             |
-
-**Supported indicator types**
-
-| Type         | Description                                              |
-| ------------ | -------------------------------------------------------- |
-| `sma`        | Simple Moving Average of closing prices                  |
-| `ema`        | Exponential Moving Average (seeded with SMA of first window) |
-| `volatility` | Rolling standard deviation of closing prices             |
-
-**Response** `200 OK`
-
-```json
-{
-  "points": [
-    {
-      "time_ms": 1692000600000,
-      "value": 29033.75
-    }
-  ]
-}
-```
-
-**Errors**
-
-| Status | Body                                                | Cause                              |
-| ------ | --------------------------------------------------- | ---------------------------------- |
-| 400    | `{"error": "symbol is required"}`                   | Missing `symbol`                   |
-| 400    | `{"error": "type is required (sma, ema, volatility)"}` | Missing `type`                  |
-| 422    | `{"detail": "unsupported indicator: ..."}`          | Unknown indicator type             |
-| 500    | `{"error": "query service error"}`                  | Backend failure                    |
-
----
-
-### `GET /v1/symbols`
-
-Returns the list of symbols tracked for the current tenant.
-
-**Response** `200 OK`
-
-```json
-{
-  "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-}
-```
-
----
-
-### `GET /v1/symbols/search`
-
-Searches symbols with historical candle coverage and returns per-symbol
-summary metadata. An empty query matches all symbols.
-
-**Query parameters**
-
-| Parameter | Type   | Required | Constraints  | Description                                   |
-| --------- | ------ | -------- | ------------ | --------------------------------------------- |
-| `q`       | string | no       | ≤ 100 chars  | Case-insensitive substring filter             |
-| `limit`   | int    | no       | 1–200 (50)   | Maximum number of results                     |
-
-**Response** `200 OK`
-
-```json
-{
-  "symbols": [
-    {
-      "symbol": "BTCUSDT",
-      "first_open_time_ms": 1700000000000,
-      "last_open_time_ms": 1700000600000,
-      "candle_count": 60,
-      "intervals": ["1m", "5m"]
-    }
-  ]
-}
-```
-
-**Errors**
-
-| Status | Body                                              | Cause                       |
-| ------ | ------------------------------------------------- | --------------------------- |
-| 401    | `{"detail": "missing tenant identity"}`           | Missing tenant headers      |
-| 422    | `{"detail": "limit must be between 1 and 200"}`   | `limit` out of range        |
-| 422    | `{"detail": "query must be at most 100 characters"}` | `q` too long             |
-| 500    | `{"error": "query service error"}`                | Backend failure             |
-
----
-
-## Command endpoints (write side)
-
-The gateway reverse-proxies these to the command service. Create requests
-require an `Idempotency-Key` header; updates and deletes do not.
-
-### `POST /v1/watchlists`
-
-Creates a new watchlist for the current tenant.
-
-**Headers**
-
-| Header            | Required | Description                          |
-| ----------------- | -------- | ------------------------------------ |
-| `Idempotency-Key` | yes      | Unique key for idempotent execution  |
-
-**Request body**
-
-```json
-{
-  "name": "My Portfolio",
-  "symbols": ["BTCUSDT", "ETHUSDT"]
-}
-```
-
-| Field     | Type       | Required | Constraints        | Description        |
-| --------- | ---------- | -------- | ------------------ | ------------------ |
-| `name`    | string     | yes      | 1–128 characters   | Watchlist name     |
-| `symbols` | string[]   | no       | —                  | List of symbols    |
-
-**Response** `201 Created`
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000"
-}
-```
-
-**Errors**
-
-| Status | Body                        | Cause                             |
-| ------ | --------------------------- | --------------------------------- |
-| 409    | `{"detail": "..."}`         | Duplicate idempotency key         |
-| 422    | `{"detail": "..."}`         | Validation error (e.g. empty name)|
-
-### `GET /v1/watchlists` and `GET /v1/watchlists/{watchlist_id}`
-
-List the current tenant's watchlists or fetch one by ID. A watchlist belonging
-to another tenant is returned as `404 Not Found`.
-
-### `PUT /v1/watchlists/{watchlist_id}`
-
-Replace a watchlist's name and symbols. The request body uses the same `name`
-and `symbols` fields as creation. Returns the updated watchlist or `404` when
-it is not owned by the current tenant.
-
-### `DELETE /v1/watchlists/{watchlist_id}`
-
-Delete a watchlist owned by the current tenant. Returns `204 No Content`, or
-`404` if it does not exist for that tenant.
-
----
-
-### `POST /v1/alert-rules`
-
-Creates a new price alert rule.
-
-**Headers**
-
-| Header            | Required | Description                          |
-| ----------------- | -------- | ------------------------------------ |
-| `Idempotency-Key` | yes      | Unique key for idempotent execution  |
-
-**Request body**
-
-```json
-{
-  "symbol": "BTCUSDT",
-  "comparator": "crosses_above",
-  "threshold": 30000.00,
-  "interval": "1m",
-  "window_seconds": null,
-  "cooldown_seconds": 300
-}
-```
-
-| Field             | Type   | Required | Default | Constraints                          | Description                               |
-| ----------------- | ------ | -------- | ------- | ------------------------------------ | ----------------------------------------- |
-| `symbol`          | string | yes      | —       | 1–32 characters                      | Trading pair to watch                     |
-| `comparator`      | string | yes      | —       | see comparators below                | Trigger condition                         |
-| `threshold`       | float  | yes      | —       | —                                    | Price level / percent / RSI threshold     |
-| `interval`        | string | no       | `"1m"`  | `"1m"`, `"5m"`, `"1h"`               | Candle interval the rule is evaluated on  |
-| `window_seconds`  | int    | no       | `null`  | 60–86400, `pct_change_*` only        | Lookback window for percent-change rules  |
-| `cooldown_seconds`| int    | no       | `300`   | ≥ 1                                  | Min seconds between triggers of this rule |
-
-**Comparators**
-
-| Comparator          | Meaning                                                        |
-| ------------------- | -------------------------------------------------------------- |
-| `above`             | Close is above `threshold`                                     |
-| `below`             | Close is below `threshold`                                     |
-| `crosses_above`     | Previous close ≤ threshold and current close > threshold       |
-| `crosses_below`     | Previous close ≥ threshold and current close < threshold       |
-| `pct_change_above`  | Change over `window_seconds` is ≥ threshold (percent)          |
-| `pct_change_below`  | Change over `window_seconds` is ≤ −threshold (percent)         |
-| `rsi_above`         | RSI(14) is above `threshold`                                   |
-| `rsi_below`         | RSI(14) is below `threshold`                                   |
-
-**Response** `201 Created`
-
-```json
-{
-  "id": "660e8400-e29b-41d4-a716-446655440001"
-}
-```
-
-**Errors**
-
-| Status | Body                        | Cause                             |
-| ------ | --------------------------- | --------------------------------- |
-| 409    | `{"detail": "..."}`         | Duplicate idempotency key         |
-| 422    | `{"detail": "..."}`         | Invalid comparator, symbol, interval or window |
-
----
-
-### `GET /v1/alert-templates`
-
-Returns the catalog of alert rule templates (common patterns such as
-"alert if BTC drops 5% in 1 hour"). The gateway reverse-proxies this to the
-command service. Price-level templates leave `threshold` to the caller;
-pattern templates pin `threshold` and `window_seconds`.
-
-**Response** `200 OK`
-
-```json
-[
-  {
-    "id": "big-drop-1h",
-    "name": "Big drop in 1 hour",
-    "description": "Alert when the price loses 5% or more within an hour.",
-    "comparator": "pct_change_below",
-    "threshold": 5.0,
-    "window_seconds": 3600,
-    "interval": "1m",
-    "cooldown_seconds": 900
-  }
-]
-```
-
----
-
-## Alert endpoints (read side)
-
-The gateway reverse-proxies these to the alert service.
-
-### `GET /v1/alert-rules`
-
-Lists alert rules, optionally filtered by tenant.
-
-**Query parameters**
-
-| Parameter   | Type   | Required | Description                   |
-| ----------- | ------ | -------- | ----------------------------- |
-| `tenant_id` | string | no       | Filter by tenant              |
-
-**Response** `200 OK`
-
-```json
-[
-  {
-    "id": "660e8400-e29b-41d4-a716-446655440001",
-    "tenant_id": "demo-tenant",
-    "symbol": "BTCUSDT",
-    "comparator": "above",
-    "threshold": 30000.00,
-    "status": "active",
-    "created_at": "2026-08-20T12:00:00Z",
-    "updated_at": "2026-08-20T12:00:00Z",
-    "interval": "1m",
-    "window_seconds": null,
-    "cooldown_seconds": 300
-  }
-]
-```
-
----
-
-### `GET /v1/alert-rules/{rule_id}`
-
-Returns a single alert rule by ID.
-
-**Path parameters**
-
-| Parameter | Type   | Description       |
-| --------- | ------ | ----------------- |
-| `rule_id` | string | Alert rule UUID   |
-
-**Response** `200 OK`
-
-```json
-{
-  "id": "660e8400-e29b-41d4-a716-446655440001",
-  "tenant_id": "demo-tenant",
-  "symbol": "BTCUSDT",
-  "comparator": "above",
-  "threshold": 30000.00,
-  "status": "active",
-  "created_at": "2026-08-20T12:00:00Z",
-  "updated_at": "2026-08-20T12:00:00Z",
-  "interval": "1m",
-  "window_seconds": null,
-  "cooldown_seconds": 300
-}
-```
-
-**Errors**
-
-| Status | Body                        | Cause                   |
-| ------ | --------------------------- | ----------------------- |
-| 404    | `{"detail": "alert rule not found"}` | Rule does not exist |
-
-### `DELETE /v1/alert-rules/{rule_id}`
-
-Soft-delete an alert rule owned by the current tenant. The rule is marked
-deleted and is no longer evaluated; previously created triggers remain in
-history. Returns `204 No Content` or `404` when the rule is not found for the
-current tenant.
-
----
-
-### `GET /v1/triggers`
-
-Lists alert trigger events, most recent first.
-
-**Query parameters**
-
-| Parameter   | Type   | Required | Default | Description                   |
-| ----------- | ------ | -------- | ------- | ----------------------------- |
-| `tenant_id` | string | no       | —       | Filter by tenant              |
-| `limit`     | int    | no       | 50      | Max results to return         |
-
-**Response** `200 OK`
-
-```json
-[
-  {
-    "id": "770e8400-e29b-41d4-a716-446655440002",
-    "tenant_id": "demo-tenant",
-    "rule_id": "660e8400-e29b-41d4-a716-446655440001",
-    "symbol": "BTCUSDT",
-    "comparator": "above",
-    "threshold": 30000.00,
-    "current_value": 30150.25,
-    "triggered_at": "2026-08-20T14:30:00Z",
-    "acknowledged": false,
-    "interval": "1m",
-    "window_seconds": null
-  }
-]
-```
-
----
-
-### `POST /v1/triggers/{trigger_id}/ack`
-
-Marks a trigger as acknowledged. Acknowledging an already-acknowledged
-trigger is a no-op. The gateway reverse-proxies this to the alert service.
-
-**Path parameters**
-
-| Parameter    | Type   | Description        |
-| ------------ | ------ | ------------------ |
-| `trigger_id` | string | Alert trigger UUID |
-
-**Response** `200 OK` — the updated trigger object (same shape as
-`GET /v1/triggers` items, with `"acknowledged": true`).
-
-**Errors**
-
-| Status | Body                              | Cause                    |
-| ------ | --------------------------------- | ------------------------ |
-| 404    | `{"detail": "trigger not found"}` | Trigger does not exist   |
-
-### `DELETE /v1/triggers`
-
-Clear trigger history for the current tenant. Pass `acknowledged_only=true` to
-remove only acknowledged triggers; omitting it or passing `false` clears all
-triggers. Returns `200 OK` with `{"deleted": <count>}`.
-
----
-
-## gRPC interface
-
-The query service also exposes a gRPC API on port `9001` for internal service
-communication (used by the api-gateway). The proto definitions are in
-`proto/cryptoscope/v1/`.
-
-### QueryService
-
-| RPC              | Request                  | Response                 | Description            |
-| ---------------- | ------------------------ | ------------------------ | ---------------------- |
-| `GetCandles`     | `GetCandlesRequest`      | `GetCandlesResponse`     | Fetch OHLCV candles    |
-| `GetIndicator`   | `GetIndicatorRequest`    | `GetIndicatorResponse`   | Compute an indicator   |
-| `ListSymbols`    | `ListSymbolsRequest`     | `ListSymbolsResponse`    | List tracked symbols   |
-| `SearchSymbols`  | `SearchSymbolsRequest`   | `SearchSymbolsResponse`  | Search symbols with historical coverage metadata |
-
-### CommandService
-
-| RPC                | Request                  | Response                 | Description            |
-| ------------------ | ------------------------ | ------------------------ | ---------------------- |
-| `CreateWatchlist`  | `CreateWatchlistRequest` | `CreateWatchlistResponse`| Create a watchlist     |
-| `CreateAlertRule`  | `CreateAlertRuleRequest` | `CreateAlertRuleResponse`| Create an alert rule   |
-
-See `proto/cryptoscope/v1/query.proto` and `proto/cryptoscope/v1/command.proto`
-for the full message definitions.
-
----
-
-## Common response format
-
-All error responses use a consistent JSON shape:
-
-```json
-{
-  "error": "human-readable message"
-}
-```
-
-or for FastAPI validation errors:
-
-```json
-{
-  "detail": "human-readable message"
-}
-```
-
-## Frontend client
-
-The frontend uses `frontend/src/api/client.ts` which calls all endpoints
-through the gateway at `/api`. The Vite dev server proxies `/api` →
-`http://localhost:8080`.
+Query-service exposes internal FastAPI routes matching candle, indicator, symbol, and export operations, and a gRPC `QueryService` defined in `proto/cryptoscope/v1/query.proto`. Keep these internal listeners inaccessible to untrusted clients. Generated contracts are not edited directly; regenerate with `make proto`.

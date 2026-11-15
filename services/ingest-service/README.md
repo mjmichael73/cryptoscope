@@ -1,28 +1,7 @@
-# ingest-service
+# Ingest service
 
-The ingest service is the front door for market data. It polls the public
-market data APIs on a schedule, normalizes each response into a common tick,
-drops duplicates, and publishes the survivors to Kafka.
+Go polling service that fetches current prices from Binance and Coinbase public REST endpoints, validates and deduplicates ticks through Redis, and publishes normalized records to Kafka (`market.ticks.raw` by default).
 
-## What it does
+Symbols and poll interval are configured with `INGEST_SYMBOLS` and `INGEST_POLL_INTERVAL_SECONDS`; endpoints are configured with `BINANCE_BASE_URL` and `COINBASE_BASE_URL`. The current Coinbase adapter maps `BTCUSDT` to `BTC-USD` but retains the `BTCUSDT` label, mixing quote currencies in downstream aggregation; see the [roadmap](../../docs/roadmap.md).
 
-- Polls Binance and Coinbase public endpoints for the configured symbols.
-- Normalizes every response into a `domain.Tick`.
-- Deduplicates ticks with a Redis backed key so retries do not create doubles.
-- Publishes ticks to the `market.ticks.raw` topic keyed by symbol.
-
-## Configuration
-
-The service reads its configuration from the environment. See the repository
-`.env.example` for the full list. The values it cares about are the Kafka
-brokers, the Redis address, the source base URLs, the symbol list, and the poll
-interval.
-
-## Running the tests
-
-```bash
-go test ./...
-```
-
-The source tests use `httptest` servers, so they run without touching the real
-APIs.
+The dedupe key is stored before Kafka publication. A failed publish can suppress retry for the key TTL (24 hours in the current main configuration). This integrity issue is also tracked in the roadmap. Run `make test-ingest` when validation is requested.

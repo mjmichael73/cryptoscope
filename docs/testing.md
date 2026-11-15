@@ -1,152 +1,40 @@
-# Testing — cryptoscope
+# Testing and static checks
 
-## Overview
+The project defines test and lint runners in `docker-compose.tests.yml`; Make targets are the supported shortcuts. Docker Compose v2 is required. Services use bind-mounted source for most test commands. Python test images install their service dependencies at build/start time as configured in Compose.
 
-All tests run inside Docker containers via `docker-compose.tests.yml`. The only host dependency is Docker. Source code is bind-mounted into test containers, so edits on the host are reflected immediately — no image rebuild needed between runs.
+## Run suites
 
-## Test commands
-
-| Command                | What it runs                                    |
-| ---------------------- | ----------------------------------------------- |
-| `make test`            | All Go + Python tests                           |
-| `make test-go`         | All 3 Go services + 8 shared Go libs            |
-| `make test-python`     | All 3 Python services + shared Python lib       |
-| `make test-ingest`     | ingest-service only                             |
-| `make test-processor`  | stream-processor only                           |
-| `make test-gateway`    | api-gateway only                                |
-| `make test-command`    | command-service only                            |
-| `make test-query`      | query-service only                              |
-| `make test-alert`      | alert-service only                              |
-| `make test-libs-go`    | All 8 Go shared library modules                 |
-| `make test-libs-python`| Python shared library tests                     |
-
-## Go tests
-
-Run inside `golang:1.25-alpine` containers. Each service has its own `go.mod` with `replace` directives pointing at the local shared libraries.
-
-```bash
-# Run a single service's tests
-make test-gateway
-
-# Run all Go tests
-make test-go
-
-# Run a specific test by name (via make shell)
-make shell-go
-cd services/api-gateway
-go test ./... -run TestRateLimiter -v -count=1
+```sh
+make test                 # Go, Python, and frontend suites
+make test-go              # all Go service modules and Go shared libraries
+make test-python          # all Python services and shared Python package
+make test-frontend        # Vitest suite
 ```
 
-### Conventions
+Focused targets include `make test-ingest`, `make test-processor`, `make test-gateway`, `make test-command`, `make test-query`, `make test-alert`, `make test-libs-go`, and `make test-libs-python`.
 
-- Table-driven tests for parsing and enum logic
-- In-memory fakes over mocks for Go interfaces
-- Tests live alongside the code they cover (e.g., `internal/handler/handler_test.go`)
-- Run with `-count=1` to disable caching
+## Lint and type checks
 
-## Python tests
-
-Run inside pre-built images with `pytest-asyncio` in auto mode. The `Dockerfile.test.python` image caches `pip install ".[dev]"` so containers start in ~0.1s after the first build.
-
-```bash
-# Run a single service's tests
-make test-query
-
-# Run all Python tests
-make test-python
-
-# Run inside a Python dev shell for interactive debugging
-make shell-python
-cd /app
-pytest tests/ -v
-```
-
-### Conventions
-
-- All test files are prefixed `test_`
-- Use `@pytest.fixture` and `async def` for async fixtures
-- `asyncio_mode = "auto"` (configured in each `pyproject.toml`)
-- Tests go in a `tests/` directory at the service root
-
-## Frontend lint
-
-TypeScript type-checking via `tsc --noEmit`, run inside `node:22-alpine`:
-
-```bash
+```sh
+make lint
+make lint-go
+make lint-python
 make lint-frontend
 ```
 
-There are no frontend unit tests at this time. The frontend is a thin SPA that delegates all business logic to the backend.
+Go lint runs `gofmt` listing and `go vet`; Python runs Ruff and mypy; frontend runs the configured lint/type-check script. Check the Makefile and Compose runner when a target changes.
 
-## Linting
+## Protobuf generation
 
-| Command            | Tool             | Scope                            |
-| ------------------ | ---------------- | -------------------------------- |
-| `make lint-go`     | `gofmt` + `go vet` | All Go services + Go libs        |
-| `make lint-python` | `ruff` + `mypy`    | All Python services + Python libs|
-| `make lint-frontend`| `tsc --noEmit`  | Frontend TypeScript types        |
-| `make lint`        | All three above  | Full codebase                    |
+Edit `.proto` files under `proto/cryptoscope/v1/`, then run `make proto` to regenerate both language bindings. Include generated outputs when the contract change requires them.
 
-## How `docker-compose.tests.yml` works
+## Conventions
 
-Every Makefile test command routes through `docker-compose.tests.yml`. Source is mounted as a bind volume:
+- Go tests live beside packages and use table-driven cases where they clarify parsing or enum behavior.
+- Python tests live in each service's `tests/` directory and use pytest with asyncio mode from `pyproject.toml`.
+- Frontend tests use Vitest and Testing Library patterns already present in `frontend/src`.
+- Prefer in-memory fakes for Go interfaces and assert tenant isolation at service/API boundaries.
+- For authorization changes, include both same-tenant success and cross-tenant denial cases.
+- For stream and retry changes, cover reconnect, replay, duplicate delivery, and failure recovery.
 
-```yaml
-# Example: test-gateway runs this:
-image: golang:1.25-alpine
-working_dir: /app/services/api-gateway
-entrypoint: ["go", "test", "./...", "-count=1"]
-volumes:
-  - ./proto:/app/proto
-  - ./libs:/app/libs
-  - ./services:/app/services
-  - ./go.work:/app/go.work
-```
-
-Python test images are built from `Dockerfile.test.python` with a build arg for the service name. The image is cached after the first build.
-
-## Writing new tests
-
-### Go — add a test for a new handler
-
-```go
-// services/ingest-service/internal/handler/tick_test.go
-package handler
-
-import (
-    "testing"
-
-    "github.com/mojimich2015/cryptoscope/services/ingest-service/internal/domain"
-)
-
-func TestProcessTick_ValidationError(t *testing.T) {
-    h := NewHandler(nil, nil)
-    err := h.ProcessTick(domain.Tick{}) // empty tick
-    if err == nil {
-        t.Fatal("expected validation error for empty tick")
-    }
-}
-```
-
-### Python — add a test for a new route
-
-```python
-# services/query-service/tests/test_candles.py
-import pytest
-from httpx import AsyncClient
-from app.main import create_app
-
-@pytest.fixture
-def app():
-    return create_app()
-
-async def test_list_candles_returns_empty(app):
-    async with AsyncClient(app=app, base_url="http://test") as client:
-        resp = await client.get("/v1/candles", params={"symbol": "BTC", "interval": "1h"})
-    assert resp.status_code == 200
-    assert "candles" in resp.json()
-```
-
-## CI integration
-
-These same `make test` and `make lint` commands run in CI (`.github/workflows/`). The test containers are ephemeral and leave no state behind.
+No test suite was run during the November 15, 2026 documentation review. The roadmap captures code-review findings that need regression tests as part of their fixes.

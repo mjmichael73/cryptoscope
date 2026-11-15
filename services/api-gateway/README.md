@@ -1,8 +1,7 @@
-# api-gateway
+# API gateway
 
-Edge REST API for cryptoscope. Authenticates requests, enforces rate limits,
-resolves tenant context, and routes to the appropriate backend service:
+Go HTTP edge for client REST and SSE. It validates Keycloak JWTs outside dev mode, resolves/forwards tenant identity, rate-limits `/v1/*`, translates query requests to gRPC, and proxies command/alert HTTP routes.
 
-- **GET /v1/candles**, **GET /v1/indicators**, **GET /v1/symbols** → query-service (gRPC)
-- **POST /v1/watchlists**, **POST /v1/alert-rules** → command-service (HTTP)
-- **GET /healthz** → returns service health
+Local HTTP defaults to port 8080. Configuration is in `internal/config/config.go`; route wiring is in `internal/gateway/gateway.go`. The gateway's `/healthz` is a process check, not a full dependency readiness check.
+
+Known issues affecting browser writes, candle export, and SSE are documented in [the API reference](../../docs/API.md) and [roadmap](../../docs/roadmap.md). Run `make test-gateway` when validation is requested.

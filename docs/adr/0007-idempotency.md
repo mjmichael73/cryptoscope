@@ -6,6 +6,8 @@ Date: 2026-05-27
 
 Accepted
 
+Implementation note (November 15, 2026): ingestion currently records the Redis dedupe key before publishing to Kafka. A publish failure can therefore suppress a retry until the key expires (24 hours in the service configuration). This violates the intended retry guarantee; see [roadmap](../roadmap.md).
+
 ## Context
 
 At-least-once delivery is the realistic guarantee for our HTTP polling and
@@ -22,6 +24,7 @@ duplicates.
 
 ## Consequences
 
-The system tolerates retries and redeliveries without corrupting data. The cost
-is a Redis lookup on the hot path, which is cheap relative to the safety it
-buys.
+This approach is intended to tolerate retries and redeliveries. Its current
+ingestion ordering has a failure window between dedupe reservation and Kafka
+publication, so it does not yet guarantee retry safety. Close that gap with a
+pending/completed state or another durable publication protocol.

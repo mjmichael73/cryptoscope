@@ -6,6 +6,8 @@ Date: 2026-05-19
 
 Accepted
 
+Implementation note (November 15, 2026): the read/write service split exists, but the implementation is not a strict database-isolated CQRS design. `alert-service` reads command-service-owned `alert_rules` directly from shared PostgreSQL and writes trigger rows there; no separate event-projected read model is implemented. Domain events use the shared JSON envelope, while protobuf defines query/command gRPC contracts. See [current architecture](../architecture.md) and [roadmap](../roadmap.md).
+
 ## Context
 
 The workload is read heavy and write light on the analytics side, but the
@@ -78,8 +80,11 @@ Separate the command and query responsibilities across dedicated services:
   evaluates alert rules against current prices, and writes triggers to
   PostgreSQL. It is decoupled from both the command and query paths.
 
-The two sides communicate only through events on Kafka, never by sharing a
-database connection or calling each other directly.
+The original design intended communication through Kafka rather than direct
+database sharing. Current alert-service implementation is an exception: it
+shares PostgreSQL and reads `alert_rules` directly. Treat that as an
+implementation deviation from this decision, not as the intended service
+boundary.
 
 ```
 command-service ──write──► PostgreSQL
@@ -126,10 +131,10 @@ query-service ──read──► ClickHouse
   deployment and monitoring surface area. This is mitigated by the shared
   infrastructure (Docker Compose, OpenTelemetry, structured logging).
 
-- **Event schema evolution**: changing the domain event schema requires
-  coordinating across producers and consumers. This is managed through
-  protobuf definitions in `proto/cryptoscope/v1/` and backward-compatible
-  schema changes.
+  - **Event schema evolution**: changing the domain event schema requires
+  coordinating across producers and consumers. Kafka domain events currently
+  use the shared JSON envelope; protobuf files define the gRPC service
+  contracts.
 
 ### Risks
 
