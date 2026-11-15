@@ -121,7 +121,7 @@ frontend-dev: ## Start Vite dev server on the host (requires backend running)
 # ── Tests ──────────────────────────────────────────────────────────────
 
 .PHONY: test
-test: test-go test-python ## Run all test suites
+test: test-go test-python test-frontend ## Run all test suites
 
 .PHONY: test-all
 test-all: test ## Alias for `make test`
@@ -143,6 +143,10 @@ test-python: ## Run all Python unit tests
 	done
 	@echo "==> testing libs/python"
 	$(COMPOSE_TEST) run --rm test-libs-python
+
+.PHONY: test-frontend
+test-frontend: ## Run frontend unit tests
+	$(COMPOSE_TEST) run --rm test-frontend
 
 
 # ── Linting ────────────────────────────────────────────────────────────

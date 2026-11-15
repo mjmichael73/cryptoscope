@@ -100,6 +100,17 @@ services:
     volumes:
       - ./libs/python:/app
 
+  test-frontend:
+    image: node:22-alpine
+    working_dir: /app/frontend
+    entrypoint:
+      - sh
+      - -c
+      - |
+        npm ci && npx vitest run
+    volumes:
+      - ./frontend:/app/frontend
+
   # ── Frontend ────────────────────────────────────────────────────────
   lint-frontend:
     image: node:22-alpine
