@@ -326,3 +326,50 @@ async def test_replayed_create_still_returns_original_id(repo, publisher):
 
     assert first == second
     assert len(publisher.published) == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: alert rule delete
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_alert_rule_soft_deletes_and_emits(repo, publisher):
+    service = CommandService(repo, publisher)
+    rule_id = await service.create_alert_rule(
+        CreateAlertRule(
+            tenant_id=TENANT_ID,
+            idempotency_key="rule-del",
+            symbol="BTCUSDT",
+            comparator="above",
+            threshold=5.0,
+        )
+    )
+
+    await service.delete_alert_rule(TENANT_ID, rule_id)
+
+    assert repo.alert_rules[rule_id].status == "deleted"
+    assert publisher.published[-1].event_type == "alert_rule_deleted"
+    assert publisher.published[-1].aggregate_id == rule_id
+
+
+async def test_delete_alert_rule_unknown_id_raises(repo, publisher):
+    service = CommandService(repo, publisher)
+    with pytest.raises(NotFoundError):
+        await service.delete_alert_rule(TENANT_ID, "missing")
+
+
+async def test_delete_alert_rule_other_tenant_raises(repo, publisher):
+    service = CommandService(repo, publisher)
+    other_tenant = "22222222-2222-2222-2222-222222222222"
+    rule_id = await service.create_alert_rule(
+        CreateAlertRule(
+            tenant_id=other_tenant,
+            idempotency_key="rule-other",
+            symbol="BTCUSDT",
+            comparator="above",
+            threshold=5.0,
+        )
+    )
+
+    with pytest.raises(NotFoundError):
+        await service.delete_alert_rule(TENANT_ID, rule_id)

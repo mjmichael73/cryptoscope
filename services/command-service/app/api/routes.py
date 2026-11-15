@@ -17,9 +17,11 @@ from app.api.schemas import (
     CreateAlertRuleRequest,
     CreatedResponse,
     CreateWatchlistRequest,
+    UpdateWatchlistRequest,
+    WatchlistOut,
 )
-from app.domain.commands import CreateAlertRule, CreateWatchlist
-from app.domain.errors import ConflictError, ValidationError
+from app.domain.commands import CreateAlertRule, CreateWatchlist, UpdateWatchlist
+from app.domain.errors import ConflictError, NotFoundError, ValidationError
 from app.domain.service import CommandService
 from app.domain.templates import ALERT_TEMPLATES
 from app.infra.repository import SqlAlchemyWriteRepository
@@ -102,3 +104,109 @@ async def create_alert_rule(
 @router.get("/alert-templates", response_model=list[AlertTemplateOut])
 async def list_alert_templates() -> list[AlertTemplateOut]:
     return [AlertTemplateOut(**template) for template in ALERT_TEMPLATES]
+
+
+@router.get("/watchlists", response_model=list[WatchlistOut])
+async def list_watchlists(
+    request: Request,
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
+) -> list[WatchlistOut]:
+    service = await _service(request)
+    try:
+        watchlists = await service.list_watchlists(tenant.id)
+    finally:
+        await request.state.session.close()
+    return [
+        WatchlistOut(
+            id=w.id,
+            tenant_id=w.tenant_id,
+            name=w.name,
+            symbols=list(w.symbols),
+            created_at=w.created_at,
+        )
+        for w in watchlists
+    ]
+
+
+@router.get("/watchlists/{watchlist_id}", response_model=WatchlistOut)
+async def get_watchlist(
+    watchlist_id: str,
+    request: Request,
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
+) -> WatchlistOut:
+    service = await _service(request)
+    try:
+        watchlist = await service.get_watchlist(tenant.id, watchlist_id)
+    except NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    finally:
+        await request.state.session.close()
+    return WatchlistOut(
+        id=watchlist.id,
+        tenant_id=watchlist.tenant_id,
+        name=watchlist.name,
+        symbols=list(watchlist.symbols),
+        created_at=watchlist.created_at,
+    )
+
+
+@router.put("/watchlists/{watchlist_id}", response_model=WatchlistOut)
+async def update_watchlist(
+    watchlist_id: str,
+    body: UpdateWatchlistRequest,
+    request: Request,
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
+) -> WatchlistOut:
+    service = await _service(request)
+    try:
+        watchlist = await service.update_watchlist(
+            UpdateWatchlist(
+                tenant_id=tenant.id,
+                watchlist_id=watchlist_id,
+                name=body.name,
+                symbols=body.symbols,
+            )
+        )
+    except ValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    finally:
+        await request.state.session.close()
+    return WatchlistOut(
+        id=watchlist.id,
+        tenant_id=watchlist.tenant_id,
+        name=watchlist.name,
+        symbols=list(watchlist.symbols),
+        created_at=watchlist.created_at,
+    )
+
+
+@router.delete("/watchlists/{watchlist_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_watchlist(
+    watchlist_id: str,
+    request: Request,
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
+) -> None:
+    service = await _service(request)
+    try:
+        await service.delete_watchlist(tenant.id, watchlist_id)
+    except NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    finally:
+        await request.state.session.close()
+
+
+@router.delete("/alert-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_alert_rule(
+    rule_id: str,
+    request: Request,
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
+) -> None:
+    service = await _service(request)
+    try:
+        await service.delete_alert_rule(tenant.id, rule_id)
+    except NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    finally:
+        await request.state.session.close()

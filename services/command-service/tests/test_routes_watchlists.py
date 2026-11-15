@@ -175,3 +175,54 @@ async def test_delete_other_tenants_watchlist_returns_404(
     )
     resp = await client.delete("/v1/watchlists/wl-9", headers=HEADERS)
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: alert rule delete route
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_alert_rule_returns_204(client: AsyncClient, db) -> None:
+    from app.domain.models import AlertRule
+
+    async with db[0]() as session:
+        session.add(
+            AlertRule(
+                id="rule-1",
+                tenant_id=DEMO_TENANT,
+                symbol="BTCUSDT",
+                comparator="above",
+                threshold=5.0,
+                interval="1m",
+                cooldown_seconds=300,
+                status="active",
+            )
+        )
+        await session.commit()
+
+    resp = await client.delete("/v1/alert-rules/rule-1", headers=HEADERS)
+    assert resp.status_code == 204
+
+
+async def test_delete_other_tenants_alert_rule_returns_404(
+    client: AsyncClient, db
+) -> None:
+    from app.domain.models import AlertRule
+
+    async with db[0]() as session:
+        session.add(
+            AlertRule(
+                id="rule-9",
+                tenant_id=OTHER_TENANT,
+                symbol="BTCUSDT",
+                comparator="above",
+                threshold=5.0,
+                interval="1m",
+                cooldown_seconds=300,
+                status="active",
+            )
+        )
+        await session.commit()
+
+    resp = await client.delete("/v1/alert-rules/rule-9", headers=HEADERS)
+    assert resp.status_code == 404
