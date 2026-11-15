@@ -12,6 +12,7 @@ class AlertRuleStatus(str, Enum):
     ACTIVE = "active"
     PAUSED = "paused"
     TRIGGERED = "triggered"
+    DELETED = "deleted"
 
 
 @dataclass

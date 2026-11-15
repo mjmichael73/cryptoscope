@@ -656,3 +656,91 @@ async def test_disabled_rule_does_not_dispatch() -> None:
     await engine._process(candle_payload(close=51000.0))
 
     assert len(ch.received) == 0, "paused rule should not fire"
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: alert_rule_deleted handling
+# ---------------------------------------------------------------------------
+
+
+class MutatingFakeSession(FakeSession):
+    """Fake session that applies UPDATE alert_rules SET status='deleted'."""
+
+    def __init__(
+        self,
+        rules: list[dict[str, Any]],
+        last_triggered_at: datetime | None = None,
+    ) -> None:
+        super().__init__(rules=rules, last_triggered_at=last_triggered_at)
+
+    async def execute(self, query: Any) -> FakeResult:
+        text = str(query)
+        if text.lstrip().upper().startswith("UPDATE"):
+            for rule in self._rules:
+                if ":status" in text:
+                    rule["status"] = "deleted"
+            return FakeResult([])
+        return await super().execute(query)
+
+
+class MutatingFakeSessionFactory(FakeSessionFactory):
+    def __init__(
+        self,
+        rules: list[dict[str, Any]],
+        last_triggered_at: datetime | None = None,
+    ) -> None:
+        self._rules = rules
+        self._last_triggered_at = last_triggered_at
+
+    def _session(self) -> MutatingFakeSession:
+        return MutatingFakeSession(self._rules, self._last_triggered_at)
+
+
+@pytest.mark.asyncio
+async def test_alert_rule_deleted_marks_rule_deleted() -> None:
+    rules = [rule_dict()]
+    factory = MutatingFakeSessionFactory(rules)
+    engine = AlertEngine(
+        consumer=FakeConsumer([]),
+        producer=FakeProducer(),
+        alerts_topic="alerts.triggers",
+        session_factory=factory,
+        logger=FakeLogger(),
+    )
+
+    payload = DomainEvent(
+        event_type="alert_rule_deleted",
+        aggregate_id="test-rule",
+        tenant_id="tenant-1",
+        data={"id": "test-rule", "symbol": "BTCUSDT"},
+    ).to_message()
+
+    await engine._process(payload)
+
+    assert rules[0]["status"] == "deleted"
+
+
+@pytest.mark.asyncio
+async def test_deleted_rule_does_not_fire_trigger() -> None:
+    rules = [rule_dict()]
+    factory = MutatingFakeSessionFactory(rules)
+    engine = AlertEngine(
+        consumer=FakeConsumer([]),
+        producer=FakeProducer(),
+        alerts_topic="alerts.triggers",
+        session_factory=factory,
+        logger=FakeLogger(),
+    )
+
+    delete_payload = DomainEvent(
+        event_type="alert_rule_deleted",
+        aggregate_id="test-rule",
+        tenant_id="tenant-1",
+        data={"id": "test-rule", "symbol": "BTCUSDT"},
+    ).to_message()
+    await engine._process(delete_payload)
+
+    candle = candle_payload(close=51000.0)
+    await engine._process(candle)
+
+    assert engine._producer.published == []

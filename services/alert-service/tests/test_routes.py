@@ -44,6 +44,7 @@ class FakeSessionFactory:
 class FakeResult:
     def __init__(self, rows: list[Any]) -> None:
         self._rows = rows
+        self.rowcount: int = len(rows)
 
     def scalars(self) -> FakeResult:
         return self
@@ -153,3 +154,68 @@ async def test_ack_trigger_marks_acknowledged(client_with_trigger: AsyncClient) 
 async def test_ack_unknown_trigger_returns_404(client: AsyncClient) -> None:
     resp = await client.post("/v1/triggers/no-such-trigger/ack")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: trigger history clear
+# ---------------------------------------------------------------------------
+
+
+class DeletingFakeSession(FakeSession):
+    """Fake session that supports bulk delete() on alert_triggers."""
+
+    def __init__(self, rules: list[Any], triggers: list[Any]) -> None:
+        super().__init__(rules=rules, triggers=triggers)
+
+    async def execute(self, query: Any) -> FakeResult:
+        text = str(query)
+        if text.lstrip().upper().startswith("DELETE"):
+            only_ack = "acknowledged" in text
+            keep = [
+                t for t in self._triggers
+                if only_ack and not getattr(t, "acknowledged", False)
+            ]
+            deleted_count = len(self._triggers) - len(keep)
+            self._triggers = keep
+            result = FakeResult([])
+            result.rowcount = deleted_count
+            return result
+        return super().execute(query)
+
+
+class DeletingFakeSessionFactory(FakeSessionFactory):
+    def __call__(self) -> DeletingFakeSession:
+        return DeletingFakeSession(rules=self._rules, triggers=self._triggers)
+
+
+@pytest.fixture
+def app_with_history(app: FastAPI) -> FastAPI:
+    app.state.session_factory = DeletingFakeSessionFactory(
+        triggers=[_trigger(id="trg-1"), _trigger(id="trg-2", acknowledged=True)]
+    )
+    return app
+
+
+@pytest.fixture
+async def client_with_history(app_with_history: FastAPI) -> AsyncClient:
+    transport = ASGITransport(app=app_with_history)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+
+async def test_clear_all_triggers(client_with_history: AsyncClient) -> None:
+    resp = await client_with_history.delete("/v1/triggers")
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted": 2}
+
+
+async def test_clear_acknowledged_only(client_with_history: AsyncClient) -> None:
+    resp = await client_with_history.delete("/v1/triggers?acknowledged_only=true")
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted": 1}
+
+
+async def test_clear_empty_history(client: AsyncClient) -> None:
+    resp = await client.delete("/v1/triggers")
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted": 0}

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.schemas import AlertRuleOut, AlertTriggerOut, HealthResponse
@@ -139,3 +139,19 @@ async def acknowledge_trigger(
             interval=trigger.interval,
             window_seconds=trigger.window_seconds,
         )
+
+
+@router.delete("/v1/triggers")
+async def clear_triggers(
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
+    acknowledged_only: bool = False,
+) -> dict[str, int]:
+    """Delete trigger history. With ``acknowledged_only`` only acknowledged
+    rows are removed; otherwise the whole history is cleared."""
+    async with session_factory() as session:
+        query = delete(AlertTriggerModel)
+        if acknowledged_only:
+            query = query.where(AlertTriggerModel.acknowledged.is_(True))
+        result = await session.execute(query)
+        await session.commit()
+        return {"deleted": int(getattr(result, "rowcount", 0) or 0)}

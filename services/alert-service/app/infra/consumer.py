@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from cryptoscope_shared.comparators import Comparator
-from cryptoscope_shared.events import CANDLE_UPDATED, DomainEvent
-from sqlalchemy import func, select
+from cryptoscope_shared.events import ALERT_RULE_DELETED, CANDLE_UPDATED, DomainEvent
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.evaluation import evaluate
@@ -63,6 +63,8 @@ class AlertEngine:
 
         if event.event_type == CANDLE_UPDATED:
             await self._evaluate_candle_event(event)
+        elif event.event_type == ALERT_RULE_DELETED:
+            await self._mark_rule_deleted(event)
         elif event.event_type in ("watchlist_created", "alert_rule_created"):
             self._logger.info(
                 "domain event received",
@@ -71,6 +73,30 @@ class AlertEngine:
             )
         else:
             self._logger.debug("ignoring unknown event type", event_type=event.event_type)
+
+    async def _mark_rule_deleted(self, event: DomainEvent) -> None:
+        """Mark a deleted rule as ``deleted`` in the shared rules table.
+
+        The command service already soft-deletes the row before publishing;
+        this handler is a defensive consistency measure so a replayed or
+        delayed event still disables the rule (e.g. after an outage).
+        """
+        rule_id = event.aggregate_id or str(event.data.get("id", ""))
+        if not rule_id:
+            self._logger.warning("alert_rule_deleted without rule id")
+            return
+        async with self._session_factory() as session:
+            await session.execute(
+                update(AlertRuleModel)
+                .where(AlertRuleModel.id == rule_id)
+                .values(status=AlertRuleStatus.DELETED.value)
+            )
+            await session.commit()
+        self._logger.info(
+            "alert rule marked deleted",
+            rule_id=rule_id,
+            tenant_id=event.tenant_id,
+        )
 
     async def _evaluate_candle_event(self, event: DomainEvent) -> None:
         symbol = event.data.get("symbol", "")
@@ -86,6 +112,8 @@ class AlertEngine:
 
         rules = await self._fetch_active_rules(tenant_id, symbol)
         for rule in rules:
+            if rule.status != AlertRuleStatus.ACTIVE:
+                continue
             if rule.interval != interval:
                 continue
             if await self._cooldown_active(rule):
