@@ -12,9 +12,10 @@ export function useCandleStream(
   symbol: string,
   interval: string,
   initialCandles: Candle[],
-): { candles: Candle[]; connected: boolean } {
+): { candles: Candle[]; connected: boolean; reconnects: number } {
   const [candles, setCandles] = useState<Candle[]>(initialCandles);
   const [connected, setConnected] = useState(false);
+  const [reconnects, setReconnects] = useState(0);
   const seenRef = useRef<Set<number>>(new Set());
 
   // Reset when symbol or interval changes.
@@ -24,57 +25,76 @@ export function useCandleStream(
   }, [symbol, interval, initialCandles]);
 
   useEffect(() => {
-    const es = new EventSource(`${GATEWAY}/v1/candles/stream`);
+    let source: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    let disposed = false;
 
-    es.addEventListener("connected", () => {
-      setConnected(true);
-    });
+    const connect = () => {
+      if (disposed) return;
+      reconnectTimer = undefined;
+      const current = new EventSource(`${GATEWAY}/v1/candles/stream`);
+      source = current;
 
-    es.addEventListener("candle", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.interval !== interval) return;
+      current.addEventListener('connected', () => {
+        attempt = 0;
+        setConnected(true);
+      });
 
-        const candle: Candle = {
-          open_time_ms: data.open_time_ms,
-          open: data.open,
-          high: data.high,
-          low: data.low,
-          close: data.close,
-          volume: data.volume,
-        };
+      current.addEventListener('candle', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.interval !== interval) return;
 
-        setCandles((prev) => {
-          if (seenRef.current.has(candle.open_time_ms)) {
-            // Update existing candle (price may have changed).
-            return prev.map((c) =>
-              c.open_time_ms === candle.open_time_ms ? candle : c,
-            );
-          }
-          seenRef.current.add(candle.open_time_ms);
-          const next = [...prev, candle].sort(
-            (a, b) => a.open_time_ms - b.open_time_ms,
-          );
-          // Keep at most 500 candles in memory.
-          if (next.length > 500) next.splice(0, next.length - 500);
-          return next;
-        });
-      } catch {
-        // Ignore malformed events.
-      }
-    });
+          const candle: Candle = {
+            open_time_ms: data.open_time_ms,
+            open: data.open,
+            high: data.high,
+            low: data.low,
+            close: data.close,
+            volume: data.volume,
+          };
 
-    es.onerror = () => {
-      setConnected(false);
+          setCandles((previous) => {
+            if (seenRef.current.has(candle.open_time_ms)) {
+              return previous.map((existing) =>
+                existing.open_time_ms === candle.open_time_ms ? candle : existing,
+              );
+            }
+            seenRef.current.add(candle.open_time_ms);
+            const next = [...previous, candle].sort((a, b) => a.open_time_ms - b.open_time_ms);
+            if (next.length > 500) next.splice(0, next.length - 500);
+            return next;
+          });
+        } catch {
+          // Ignore malformed events.
+        }
+      });
+
+      current.onerror = () => {
+        if (disposed || source !== current || reconnectTimer !== undefined) return;
+        current.close();
+        setConnected(false);
+        const baseDelay = Math.min(1000 * 2 ** attempt, 30_000);
+        const jitteredDelay = Math.round(baseDelay * (0.8 + Math.random() * 0.4));
+        const delay = Math.min(30_000, jitteredDelay);
+        attempt += 1;
+        setReconnects((count) => count + 1);
+        reconnectTimer = setTimeout(connect, delay);
+      };
     };
 
+    setReconnects(0);
+    connect();
     return () => {
-      es.close();
+      disposed = true;
+      if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+      source?.close();
       setConnected(false);
     };
-  }, [interval]);
+  }, [symbol, interval]);
 
-  return { candles, connected };
+  return { candles, connected, reconnects };
 }
 
 /**

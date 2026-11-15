@@ -25,7 +25,7 @@ export default function MarketData() {
   const [interval_, setInterval_] = useState("1h");
   const [loadingCandles, setLoadingCandles] = useState(false);
   const [initialCandles, setInitialCandles] = useState<Candle[]>([]);
-  const { candles, connected } = useCandleStream(symbol, interval_, initialCandles);
+  const { candles, connected, reconnects } = useCandleStream(symbol, interval_, initialCandles);
   const [indicators, setIndicators] = useState<
     { type: string; points: IndicatorPoint[]; color: string }[]
   >([]);
@@ -163,13 +163,16 @@ export default function MarketData() {
             Candles — {symbol} ({interval_})
           </h3>
           <span
-            className={`text-[11px] px-2 py-0.5 rounded-full ${
+            aria-live="polite"
+            className={`rounded-full px-2.5 py-1 text-xs ${
               connected
-                ? "bg-green-900/40 text-green-400"
-                : "bg-gray-800 text-gray-500"
+                ? "bg-green-900/40 text-green-300"
+                : reconnects > 0
+                  ? "bg-amber-900/40 text-amber-300"
+                  : "bg-gray-800 text-gray-400"
             }`}
           >
-            {connected ? "● Live" : "○ Offline"}
+            {connected ? "Live" : reconnects > 0 ? `Reconnecting · ${reconnects}` : "Offline"}
           </span>
         </div>
         {loadingCandles ? (
