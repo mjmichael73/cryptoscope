@@ -25,7 +25,8 @@ help: ## Show this help
 # ── Full stack lifecycle ───────────────────────────────────────────────
 
 .PHONY: up
-up: ## Start all services (backend + frontend via Docker)
+up: ## Apply database migrations, then start all services via Docker
+	$(COMPOSE) --profile dev run --build --rm --no-deps command-service alembic upgrade head
 	$(COMPOSE) --profile dev up -d --build
 
 .PHONY: up-all

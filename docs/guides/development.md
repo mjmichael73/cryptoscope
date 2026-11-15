@@ -7,13 +7,15 @@ Docker Engine and Docker Compose v2. `make up-all` and the host frontend targets
 ## Start the application
 
 ```sh
-make up       # complete stack, including frontend container and Keycloak
+make up       # apply PostgreSQL migrations, then start frontend, services, and Keycloak
 make ps
 make logs
 make seed     # after services are ready
 ```
 
 Open `http://localhost:5173`; the gateway is at `http://localhost:8080`. Keycloak is at `http://localhost:8081` for local sign-in. Use `make down` with care: it deletes Compose volumes and local data.
+
+`make up` applies command-service Alembic migrations before bringing up application services. When starting services directly with Docker Compose, command-service applies migrations as part of its own startup.
 
 For Vite hot reload, run `make up-all`; it starts the backend and then runs `npm run dev` from `frontend/`. Alternatively, `make frontend-dev` starts Vite when the backend is already running.
 

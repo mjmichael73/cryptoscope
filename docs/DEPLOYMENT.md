@@ -5,12 +5,14 @@
 Docker Compose v2 is required. This checkout has no `.env.example`. Before `make up`, set `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `MONGO_ROOT_USERNAME`, `MONGO_ROOT_PASSWORD`, and `POSTGRES_DSN` in `.env`. The Compose file also expects the external Docker network `shared-services-network` and a PostgreSQL instance reachable on that network; PostgreSQL is not a service in this Compose file. Inspect `docker-compose.yml` before exposing ports or sharing the environment.
 
 ```sh
-make up       # build and start the complete local stack, including Keycloak
+make up       # apply PostgreSQL migrations, then build and start the complete stack
 make ps
 make logs
 make seed     # create the demo watchlist and alert rule
 make down     # stop services and remove Compose-managed volumes
 ```
+
+`make up` runs `alembic upgrade head` in a one-off command-service container before starting the stack, so the shared PostgreSQL schema is current before application services start. The command-service also applies migrations when it starts directly through Docker Compose.
 
 `make up-all` starts backend and observability containers, then runs the Vite frontend on the host at port 5173. That command requires Node/npm. The frontend container serves the UI on host port 5173; the gateway is on 8080 and local Keycloak on 8081.
 
