@@ -63,6 +63,7 @@ export interface AlertTemplate {
 
 export interface Watchlist {
   id: string;
+  tenant_id: string;
   name: string;
   symbols: string[];
   created_at?: string;

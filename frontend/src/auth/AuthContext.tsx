@@ -62,6 +62,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    const handleExpired = () => {
+      setSession(null);
+      setStatus('unauthenticated');
+    };
+    window.addEventListener('cryptoscope:auth-expired', handleExpired);
+    return () => window.removeEventListener('cryptoscope:auth-expired', handleExpired);
+  }, []);
+
   const completeLogin = useCallback((tokens: TokenResponse) => {
     const next = sessionFromTokens(tokens);
     saveSession(next);
