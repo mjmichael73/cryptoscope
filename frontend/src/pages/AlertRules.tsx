@@ -34,6 +34,7 @@ export default function AlertRules() {
   const [windowSeconds, setWindowSeconds] = useState("3600");
   const [symbolList, setSymbolList] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -72,6 +73,22 @@ export default function AlertRules() {
       setWindowSeconds(String(template.window_seconds));
     }
     setThreshold(template.threshold != null ? String(template.threshold) : "");
+  };
+
+  const removeRule = async (rule: AlertRule) => {
+    if (!window.confirm(`Delete alert rule for ${rule.symbol}?`)) return;
+    setDeletingId(rule.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      await client.deleteAlertRule(rule.id);
+      setSuccess(`Alert rule for ${rule.symbol} deleted`);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Rule could not be deleted');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -237,66 +254,43 @@ export default function AlertRules() {
         {success && <p className="text-sm text-green-400">{success}</p>}
       </form>
 
-      <div className="rounded-lg border border-gray-800 bg-gray-900">
-        <div className="px-4 py-3 border-b border-gray-800">
-          <h3 className="text-sm font-medium text-gray-300">
-            All Rules ({rules.length})
-          </h3>
+      <section className="overflow-hidden rounded-xl border border-gray-800 bg-gray-900">
+        <div className="border-b border-gray-800 px-4 py-3">
+          <h3 className="text-sm font-medium text-gray-200">All Rules ({rules.length})</h3>
         </div>
         {rules.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-8">
-            No alert rules configured.
-          </p>
+          <p className="py-8 text-center text-sm text-gray-400">No alert rules configured.</p>
         ) : (
-          <div className="divide-y divide-gray-800">
-            {rules.map((r) => (
-              <div key={r.id} className="px-4 py-3 flex items-center justify-between">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="font-mono text-sm font-medium text-gray-200">
-                    {r.symbol}
-                  </span>
-                  <span
-                    className={`text-xs font-mono px-2 py-0.5 rounded ${
-                      r.comparator.startsWith("pct_change") || r.comparator.startsWith("rsi")
-                        ? "bg-violet-900/40 text-violet-300"
-                        : r.comparator === "above" || r.comparator === "crosses_above"
-                          ? "bg-green-900/40 text-green-400"
-                          : "bg-red-900/40 text-red-400"
-                    }`}
-                  >
-                    {comparatorLabel(r.comparator)} {r.threshold}
-                  </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-400">
-                    {r.interval}
-                  </span>
-                  {r.window_seconds != null && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-400">
-                      {r.window_seconds}s window
-                    </span>
-                  )}
-                  <span className="text-xs text-gray-500">
-                    cooldown {r.cooldown_seconds}s
-                  </span>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${
-                      r.status === "active"
-                        ? "bg-green-900/30 text-green-400"
-                        : r.status === "paused"
-                          ? "bg-yellow-900/30 text-yellow-400"
-                          : "bg-gray-800 text-gray-500"
-                    }`}
-                  >
-                    {r.status}
-                  </span>
-                </div>
-                <span className="text-xs text-gray-500">
-                  {new Date(r.created_at).toLocaleDateString()}
-                </span>
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table aria-label="Alert rules" className="w-full min-w-[760px] text-left text-sm">
+              <thead className="bg-gray-800/60 text-xs uppercase tracking-wide text-gray-400">
+                <tr>
+                  <th scope="col" className="px-4 py-3">Symbol</th>
+                  <th scope="col" className="px-4 py-3">Comparator</th>
+                  <th scope="col" className="px-4 py-3">Threshold</th>
+                  <th scope="col" className="px-4 py-3">Interval</th>
+                  <th scope="col" className="px-4 py-3">Status</th>
+                  <th scope="col" className="px-4 py-3">Created</th>
+                  <th scope="col" className="px-4 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {rules.map((rule) => (
+                  <tr key={rule.id}>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono font-medium text-gray-100">{rule.symbol}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-gray-300">{comparatorLabel(rule.comparator)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-gray-200">{rule.threshold}{rule.comparator.startsWith('pct_change') ? '%' : ''}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-gray-300">{rule.interval}</td>
+                    <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs ${rule.status === 'active' ? 'bg-emerald-900/40 text-emerald-300' : rule.status === 'paused' ? 'bg-amber-900/40 text-amber-300' : 'bg-gray-800 text-gray-300'}`}>{rule.status}</span></td>
+                    <td className="whitespace-nowrap px-4 py-3 text-gray-400">{new Date(rule.created_at).toLocaleDateString()}</td>
+                    <td className="px-4 py-3"><button type="button" aria-label={`Delete rule for ${rule.symbol}`} disabled={deletingId === rule.id} onClick={() => void removeRule(rule)} className="min-h-10 rounded-lg border border-rose-900 px-3 text-xs font-medium text-rose-300 hover:bg-rose-950/60 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-400">{deletingId === rule.id ? 'Deleting…' : 'Delete'}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }
