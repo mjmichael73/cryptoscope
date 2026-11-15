@@ -80,12 +80,18 @@ func New(query *client.QueryClient, cfg *config.Config, logger *slog.Logger, lim
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/symbols/search", g.searchSymbols)
 
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Post("/v1/watchlists", g.proxyToCommand)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/watchlists", g.proxyToCommand)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/watchlists/*", g.proxyToCommand)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Put("/v1/watchlists/*", g.proxyToCommand)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Delete("/v1/watchlists/*", g.proxyToCommand)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Post("/v1/alert-rules", g.proxyToCommand)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Delete("/v1/alert-rules/*", g.proxyToCommand)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/alert-templates", g.proxyToCommand)
 
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/alert-rules", g.proxyToAlert)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/alert-rules/*", g.proxyToAlert)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/triggers", g.proxyToAlert)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Delete("/v1/triggers", g.proxyToAlert)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Post("/v1/triggers/{trigger_id}/ack", g.proxyToAlert)
 
 	g.sseLimiter = NewSSEConnectionLimiter(5, limiter, logger)

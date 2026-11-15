@@ -419,3 +419,83 @@ func TestAlertTemplatesRouteProxiesToCommandService(t *testing.T) {
 		t.Fatalf("expected template catalog, got %v", body)
 	}
 }
+
+func TestNewManagementRoutesProxyToServices(t *testing.T) {
+	commandRequests := make(chan string, 5)
+	alertRequests := make(chan string, 1)
+	commandBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		commandRequests <- r.Method + " " + r.URL.Path + " " + r.Header.Get("X-Tenant-Id")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer commandBackend.Close()
+	alertBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		alertRequests <- r.Method + " " + r.URL.RequestURI() + " " + r.Header.Get("X-Tenant-Id")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer alertBackend.Close()
+
+	gw := New(nil, &config.Config{
+		DevMode:     true,
+		CommandHTTP: commandBackend.URL,
+		AlertHTTP:   alertBackend.URL,
+	}, newSlog(&strings.Builder{}), nil, nil)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v1/watchlists"},
+		{http.MethodGet, "/v1/watchlists/wl-1"},
+		{http.MethodPut, "/v1/watchlists/wl-1"},
+		{http.MethodDelete, "/v1/watchlists/wl-1"},
+		{http.MethodDelete, "/v1/alert-rules/rule-1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req.Header.Set("X-Tenant-Id", "tenant-test")
+			w := httptest.NewRecorder()
+			gw.ServeHTTP(w, req)
+			if w.Code != http.StatusNoContent {
+				t.Fatalf("expected command proxy 204, got %d", w.Code)
+			}
+			want := tc.method + " " + tc.path + " tenant-test"
+			if got := <-commandRequests; got != want {
+				t.Fatalf("command received %q, want %q", got, want)
+			}
+		})
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/triggers?acknowledged_only=true", nil)
+	req.Header.Set("X-Tenant-Id", "tenant-test")
+	w := httptest.NewRecorder()
+	gw.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected alert proxy 200, got %d", w.Code)
+	}
+	if got, want := <-alertRequests, "DELETE /v1/triggers?acknowledged_only=true tenant-test"; got != want {
+		t.Fatalf("alert received %q, want %q", got, want)
+	}
+}
+
+func TestNewManagementRoutesRequireAuthOutsideDevMode(t *testing.T) {
+	gw := New(nil, &config.Config{
+		DevMode:     false,
+		CommandHTTP: "http://localhost:18002",
+		AlertHTTP:   "http://localhost:18003",
+	}, newSlog(&strings.Builder{}), nil, nil)
+
+	for _, target := range []struct{ method, path string }{
+		{http.MethodGet, "/v1/watchlists"},
+		{http.MethodDelete, "/v1/watchlists/wl-1"},
+		{http.MethodDelete, "/v1/alert-rules/rule-1"},
+		{http.MethodDelete, "/v1/triggers"},
+	} {
+		req := httptest.NewRequest(target.method, target.path, nil)
+		w := httptest.NewRecorder()
+		gw.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s: expected 401 without auth, got %d", target.method, target.path, w.Code)
+		}
+	}
+}
