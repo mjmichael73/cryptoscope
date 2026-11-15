@@ -25,6 +25,30 @@ describe('Callback', () => {
     expect(mockedExchangeCode).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['invalid_scope', /sign-in provider is not configured correctly/i],
+    ['access_denied', /sign-in was cancelled or denied/i],
+    ['server_error', /sign-in provider could not complete this request/i],
+  ])('reports a verified provider error (%s) without exchanging a code', async (error, message) => {
+    sessionStorage.setItem('cryptoscope.auth.oauth_state', 'expected');
+    sessionStorage.setItem('cryptoscope.auth.pkce_verifier', 'verifier');
+    render(<MemoryRouter initialEntries={[`/callback?error=${error}&state=expected`]}><AuthProvider><Callback /></AuthProvider></MemoryRouter>);
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
+    expect(mockedExchangeCode).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('cryptoscope.auth.oauth_state')).toBeNull();
+    expect(sessionStorage.getItem('cryptoscope.auth.pkce_verifier')).toBeNull();
+    expect(sessionStorage.getItem('cryptoscope.auth.access_token')).toBeNull();
+  });
+
+  it('rejects a provider error with mismatched state', async () => {
+    sessionStorage.setItem('cryptoscope.auth.oauth_state', 'expected');
+    sessionStorage.setItem('cryptoscope.auth.pkce_verifier', 'verifier');
+    render(<MemoryRouter initialEntries={['/callback?error=invalid_scope&state=wrong']}><AuthProvider><Callback /></AuthProvider></MemoryRouter>);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not verify sign-in request/i);
+    expect(mockedExchangeCode).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('cryptoscope.auth.oauth_state')).toBe('expected');
+  });
+
   it('exchanges a valid code and navigates to the stored destination', async () => {
     sessionStorage.setItem('cryptoscope.auth.oauth_state', 'expected');
     sessionStorage.setItem('cryptoscope.auth.pkce_verifier', 'verifier');

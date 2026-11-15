@@ -16,6 +16,8 @@ make down     # stop services and remove Compose-managed volumes
 
 `make up` enables the `dev` Compose profile, which starts Keycloak alongside the frontend. It uses realm `cryptoscope`, client `cryptoscope-frontend`, user `demo@cryptoscope.local`, and `KEYCLOAK_DEMO_PASSWORD` (default `demo-password`). Keycloak and gateway dev defaults are for local use only. `make seed` calls the gateway and assumes the stack is running in its local dev configuration.
 
+The frontend uses the authorization-code flow with PKCE and requests `openid profile email`. The realm template lets Keycloak create its built-in client scopes, assigns tenant/audience mappers directly to the frontend client, and supplies a complete demo user profile. Both frontend proxies preserve the browser's host and port for `/auth/` requests. Tokens are kept in the tab's `sessionStorage`; the local gateway still bypasses JWT validation while `DEV_MODE=true`. See [OIDC troubleshooting](TROUBLESHOOTING.md#oidcjwt-failures) when updating an already imported local realm.
+
 ## Local service endpoints
 
 | Component | Port | Notes |

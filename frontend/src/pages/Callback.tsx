@@ -17,8 +17,19 @@ export default function Callback() {
     const params = new URLSearchParams(location.search);
     const code = params.get('code');
     const state = params.get('state');
+    const providerError = params.get('error');
     const expectedState = sessionStorage.getItem(oauthStateKey);
     const verifier = sessionStorage.getItem(verifierKey);
+    if (providerError && state && state === expectedState && verifier) {
+      sessionStorage.removeItem(oauthStateKey);
+      sessionStorage.removeItem(verifierKey);
+      setError(providerError === 'invalid_scope'
+        ? 'The sign-in provider is not configured correctly. Please contact your administrator.'
+        : providerError === 'access_denied'
+          ? 'Sign-in was cancelled or denied. Please try signing in again.'
+          : 'The sign-in provider could not complete this request. Please try signing in again.');
+      return;
+    }
     if (!code || !state || state !== expectedState || !verifier) {
       setError('Could not verify sign-in request. Please try signing in again.');
       return;

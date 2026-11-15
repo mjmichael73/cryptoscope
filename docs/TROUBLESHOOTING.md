@@ -33,6 +33,10 @@
 
 ## OIDC/JWT failures
 
+- If sign-in immediately returns to `/callback?error=invalid_scope`, Keycloak rejected the requested `openid profile email` scopes. The local realm template lets Keycloak create its built-in scopes and puts tenant/audience mappers directly on `cryptoscope-frontend`. A realm-level `clientScopes` array containing only a custom scope suppresses creation of built-in scopes during import.
+- The callback reports a verified provider error separately from a missing or mismatched OAuth `state`. Restart sign-in from `/login` in the same tab after correcting the provider configuration.
+- The frontend `/auth/` proxies preserve the browser's host and port, so Keycloak login forms, resources, and issuer URLs remain under `http://localhost:5173/auth/` when signing in through the UI.
+- Keycloak skips startup import for a realm that already exists. To reload the template in the stock local demo environment, run `docker compose --profile dev up -d --no-deps --force-recreate keycloak`, then `docker compose --profile dev up -d --no-deps --build frontend`. Keycloak stores its development database inside the container, so recreating it resets local Keycloak users and sessions; application database volumes are unaffected.
 - Verify `KEYCLOAK_JWKS_URL`, `KEYCLOAK_ISSUER`, and `KEYCLOAK_AUDIENCE` match the token issuer and client configuration exactly.
 - Ensure token has `tenant_id`, is signed with RS256, and has not expired.
 - Gateway startup in non-dev mode requires a successful initial JWKS fetch.

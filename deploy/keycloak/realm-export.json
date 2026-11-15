@@ -20,19 +20,13 @@
         "pkce.code.challenge.method": "S256"
       },
       "defaultClientScopes": [
+        "basic",
         "web-origins",
         "acr",
         "roles",
         "profile",
-        "email",
-        "tenant-claims"
-      ]
-    }
-  ],
-  "clientScopes": [
-    {
-      "name": "tenant-claims",
-      "protocol": "openid-connect",
+        "email"
+      ],
       "protocolMappers": [
         {
           "name": "tenant_id",
@@ -80,6 +74,8 @@
     {
       "username": "demo@cryptoscope.local",
       "email": "demo@cryptoscope.local",
+      "firstName": "Demo",
+      "lastName": "User",
       "emailVerified": true,
       "enabled": true,
       "credentials": [
