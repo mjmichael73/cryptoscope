@@ -17,8 +17,8 @@ from typing import Protocol
 from cryptoscope_shared.comparators import ALLOWED_INTERVALS, validate_rule_params
 
 from app.domain import events
-from app.domain.commands import CreateAlertRule, CreateWatchlist
-from app.domain.errors import ValidationError
+from app.domain.commands import CreateAlertRule, CreateWatchlist, UpdateWatchlist
+from app.domain.errors import NotFoundError, ValidationError
 from app.domain.models import AlertRule, Watchlist
 from app.domain.repository import WriteRepository
 
@@ -102,3 +102,55 @@ class CommandService:
             )
         )
         return rule.id
+
+    async def list_watchlists(self, tenant_id: str) -> list[Watchlist]:
+        return await self._repo.list_watchlists(tenant_id)
+
+    async def get_watchlist(self, tenant_id: str, watchlist_id: str) -> Watchlist:
+        watchlist = await self._repo.get_watchlist(tenant_id, watchlist_id)
+        if watchlist is None:
+            raise NotFoundError("watchlist not found")
+        return watchlist
+
+    async def update_watchlist(self, cmd: UpdateWatchlist) -> Watchlist:
+        if not cmd.name.strip():
+            raise ValidationError("watchlist name must not be empty")
+
+        watchlist = await self._repo.get_watchlist(cmd.tenant_id, cmd.watchlist_id)
+        if watchlist is None:
+            raise NotFoundError("watchlist not found")
+
+        watchlist.name = cmd.name.strip()
+        watchlist.symbols = [s.upper() for s in cmd.symbols]
+        await self._repo.update_watchlist(watchlist)
+        await self._repo.commit()
+
+        await self._publisher.publish(
+            events.watchlist_updated(
+                cmd.tenant_id, watchlist.id, watchlist.name, list(watchlist.symbols)
+            )
+        )
+        return watchlist
+
+    async def delete_watchlist(self, tenant_id: str, watchlist_id: str) -> None:
+        watchlist = await self._repo.get_watchlist(tenant_id, watchlist_id)
+        if watchlist is None:
+            raise NotFoundError("watchlist not found")
+
+        await self._repo.delete_watchlist(watchlist)
+        await self._repo.commit()
+
+        await self._publisher.publish(events.watchlist_deleted(tenant_id, watchlist.id))
+
+    async def delete_alert_rule(self, tenant_id: str, rule_id: str) -> None:
+        rule = await self._repo.get_alert_rule(tenant_id, rule_id)
+        if rule is None:
+            raise NotFoundError("alert rule not found")
+
+        rule.status = "deleted"
+        await self._repo.soft_delete_alert_rule(rule)
+        await self._repo.commit()
+
+        await self._publisher.publish(
+            events.alert_rule_deleted(tenant_id, rule.id, rule.symbol)
+        )

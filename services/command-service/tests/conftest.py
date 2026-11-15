@@ -61,6 +61,31 @@ class FakeRepository:
         self._pending.clear()
         self._pending_ledger.clear()
 
+    async def list_watchlists(self, tenant_id: str) -> list[Watchlist]:
+        mine = [w for w in self.watchlists.values() if w.tenant_id == tenant_id]
+        return sorted(mine, key=lambda w: w.created_at, reverse=True)
+
+    async def get_watchlist(self, tenant_id: str, watchlist_id: str) -> Watchlist | None:
+        wl = self.watchlists.get(watchlist_id)
+        if wl is not None and wl.tenant_id == tenant_id:
+            return wl
+        return None
+
+    async def update_watchlist(self, watchlist: Watchlist) -> None:
+        self.watchlists[watchlist.id] = watchlist
+
+    async def delete_watchlist(self, watchlist: Watchlist) -> None:
+        self.watchlists.pop(watchlist.id, None)
+
+    async def get_alert_rule(self, tenant_id: str, rule_id: str) -> AlertRule | None:
+        rule = self.alert_rules.get(rule_id)
+        if rule is not None and rule.tenant_id == tenant_id:
+            return rule
+        return None
+
+    async def soft_delete_alert_rule(self, rule: AlertRule) -> None:
+        self.alert_rules[rule.id] = rule
+
 
 @pytest.fixture
 def repo() -> FakeRepository:

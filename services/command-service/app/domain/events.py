@@ -7,7 +7,14 @@ from the shared lib rather than hardcoding strings.
 
 from __future__ import annotations
 
-from cryptoscope_shared.events import ALERT_RULE_CREATED, WATCHLIST_CREATED, DomainEvent
+from cryptoscope_shared.events import (
+    ALERT_RULE_CREATED,
+    ALERT_RULE_DELETED,
+    WATCHLIST_CREATED,
+    WATCHLIST_DELETED,
+    WATCHLIST_UPDATED,
+    DomainEvent,
+)
 
 
 def watchlist_created(tenant_id: str, watchlist_id: str, name: str, symbols: list[str]) -> DomainEvent:
@@ -42,4 +49,33 @@ def alert_rule_created(
             "window_seconds": window_seconds,
             "cooldown_seconds": cooldown_seconds,
         },
+    )
+
+
+def watchlist_updated(
+    tenant_id: str, watchlist_id: str, name: str, symbols: list[str]
+) -> DomainEvent:
+    return DomainEvent(
+        event_type=WATCHLIST_UPDATED,
+        aggregate_id=watchlist_id,
+        tenant_id=tenant_id,
+        data={"id": watchlist_id, "name": name, "symbols": symbols},
+    )
+
+
+def watchlist_deleted(tenant_id: str, watchlist_id: str) -> DomainEvent:
+    return DomainEvent(
+        event_type=WATCHLIST_DELETED,
+        aggregate_id=watchlist_id,
+        tenant_id=tenant_id,
+        data={"id": watchlist_id},
+    )
+
+
+def alert_rule_deleted(tenant_id: str, rule_id: str, symbol: str) -> DomainEvent:
+    return DomainEvent(
+        event_type=ALERT_RULE_DELETED,
+        aggregate_id=rule_id,
+        tenant_id=tenant_id,
+        data={"id": rule_id, "symbol": symbol},
     )

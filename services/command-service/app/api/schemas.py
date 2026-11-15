@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from cryptoscope_shared.comparators import ALLOWED_INTERVALS
 from pydantic import BaseModel, Field, field_validator
 
@@ -42,3 +44,16 @@ class AlertTemplateOut(BaseModel):
 
 class CreatedResponse(BaseModel):
     id: str
+
+
+class WatchlistOut(BaseModel):
+    id: str
+    tenant_id: str
+    name: str
+    symbols: list[str]
+    created_at: datetime
+
+
+class UpdateWatchlistRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    symbols: list[str] = Field(default_factory=list)

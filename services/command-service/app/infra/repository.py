@@ -45,3 +45,37 @@ class SqlAlchemyWriteRepository:
 
     async def commit(self) -> None:
         await self._session.commit()
+
+    async def list_watchlists(self, tenant_id: str) -> list[Watchlist]:
+        result = await self._session.execute(
+            select(Watchlist)
+            .where(Watchlist.tenant_id == tenant_id)
+            .order_by(Watchlist.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_watchlist(self, tenant_id: str, watchlist_id: str) -> Watchlist | None:
+        result = await self._session.execute(
+            select(Watchlist).where(
+                Watchlist.id == watchlist_id, Watchlist.tenant_id == tenant_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def update_watchlist(self, watchlist: Watchlist) -> None:
+        await self._session.flush()
+
+    async def delete_watchlist(self, watchlist: Watchlist) -> None:
+        await self._session.delete(watchlist)
+        await self._session.flush()
+
+    async def get_alert_rule(self, tenant_id: str, rule_id: str) -> AlertRule | None:
+        result = await self._session.execute(
+            select(AlertRule).where(
+                AlertRule.id == rule_id, AlertRule.tenant_id == tenant_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def soft_delete_alert_rule(self, rule: AlertRule) -> None:
+        await self._session.flush()

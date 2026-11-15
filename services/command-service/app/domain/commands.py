@@ -27,3 +27,11 @@ class CreateAlertRule:
     interval: str = "1m"
     window_seconds: int | None = None
     cooldown_seconds: int = 300
+
+
+@dataclass(frozen=True)
+class UpdateWatchlist:
+    tenant_id: str
+    watchlist_id: str
+    name: str
+    symbols: list[str]
