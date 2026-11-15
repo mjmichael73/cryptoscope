@@ -1,6 +1,6 @@
 [project]
 name = "cryptoscope-command-service"
-version = "0.1.0"
+version = "0.2.0"
 description = "CQRS write side for cryptoscope: owns tenant configuration and emits domain events"
 requires-python = ">=3.11"
 dependencies = [

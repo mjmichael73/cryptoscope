@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-11-15
+
 ### Added
 - Extended alert-rule comparators — crossing (`crosses_above`/`crosses_below`), percent change (`pct_change_above`/`pct_change_below`) and RSI(14) thresholds (`rsi_above`/`rsi_below`) — defined once in the shared `cryptoscope_shared.comparators` vocabulary module
 - Telegram notification channel for alerts (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`)

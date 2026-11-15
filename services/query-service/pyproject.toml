@@ -1,6 +1,6 @@
 [project]
 name = "cryptoscope-query-service"
-version = "0.1.0"
+version = "0.2.0"
 description = "CQRS read side for cryptoscope: serves candles, indicators, and symbols"
 requires-python = ">=3.11"
 dependencies = [
