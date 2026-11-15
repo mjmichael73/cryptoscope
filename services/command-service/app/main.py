@@ -6,8 +6,8 @@ tracing, and exposes the write-side routes plus a health check.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from cryptoscope_shared.kafka import JsonProducer
 from cryptoscope_shared.logging import configure_logging

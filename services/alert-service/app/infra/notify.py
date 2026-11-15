@@ -18,6 +18,8 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class TriggerPayload:
@@ -31,6 +33,8 @@ class TriggerPayload:
     threshold: float
     current_value: float
     triggered_at: str
+    interval: str = ""
+    window_seconds: int | None = None
 
 
 class NotificationChannel(ABC):
@@ -86,7 +90,7 @@ class EmailChannel(NotificationChannel):
                 s.sendmail(self.from_addr, self.to_addrs, msg.as_string())
             return True
         except Exception:
-            logging.exception("email send failed")
+            logger.exception("email send failed")
             return False
 
 
@@ -132,7 +136,7 @@ class SlackWebhookChannel(NotificationChannel):
             with urlopen(req, timeout=10) as resp:
                 return 200 <= resp.status < 300
         except (URLError, OSError):
-            logging.exception("slack webhook send failed")
+            logger.exception("slack webhook send failed")
             return False
 
 
@@ -161,7 +165,45 @@ class WebhookChannel(NotificationChannel):
             with urlopen(req, timeout=10) as resp:
                 return 200 <= resp.status < 300
         except (URLError, OSError):
-            logging.exception("webhook send failed")
+            logger.exception("webhook send failed")
+            return False
+
+
+class TelegramChannel(NotificationChannel):
+    """Sends alerts to a Telegram chat via a bot."""
+
+    def __init__(self, bot_token: str, chat_id: str, base_url: str = "https://api.telegram.org") -> None:
+        self._send_url = f"{base_url.rstrip('/')}/bot{bot_token}/sendMessage"
+        self._chat_id = chat_id
+
+    def send(self, trigger: TriggerPayload) -> bool:
+        lines = [
+            f"⚠️ <b>Alert: {trigger.symbol}</b>",
+            "",
+            f"Comparator: {trigger.comparator}",
+            f"Threshold: {trigger.threshold}",
+            f"Current Value: {trigger.current_value}",
+        ]
+        if trigger.interval:
+            lines.append(f"Interval: {trigger.interval}")
+        if trigger.window_seconds:
+            lines.append(f"Window: {trigger.window_seconds}s")
+        lines.append(f"Triggered: {trigger.triggered_at}")
+        payload = {
+            "chat_id": self._chat_id,
+            "text": "\n".join(lines),
+            "parse_mode": "HTML",
+        }
+        return self._post(payload)
+
+    def _post(self, payload: dict[str, Any]) -> bool:
+        data = json.dumps(payload).encode()
+        req = Request(self._send_url, data=data, headers={"Content-Type": "application/json"})
+        try:
+            with urlopen(req, timeout=10) as resp:
+                return 200 <= resp.status < 300
+        except (URLError, OSError):
+            logger.exception("telegram send failed")
             return False
 
 
@@ -182,6 +224,6 @@ class NotificationDispatcher:
             try:
                 results[name] = ch.send(trigger)
             except Exception:
-                logging.exception("notification channel %s failed", name)
+                logger.exception("notification channel %s failed", name)
                 results[name] = False
         return results

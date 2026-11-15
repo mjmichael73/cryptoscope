@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -21,8 +23,8 @@ async def healthz() -> HealthResponse:
 
 @router.get("/v1/alert-rules", response_model=list[AlertRuleOut])
 async def list_alert_rules(
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
     tenant_id: str | None = None,
-    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory),
 ) -> list[AlertRuleOut]:
     async with session_factory() as session:
         query = select(AlertRuleModel).order_by(AlertRuleModel.created_at.desc())
@@ -40,6 +42,9 @@ async def list_alert_rules(
                 status=r.status,
                 created_at=r.created_at,
                 updated_at=r.updated_at,
+                interval=r.interval,
+                window_seconds=r.window_seconds,
+                cooldown_seconds=r.cooldown_seconds,
             )
             for r in rules
         ]
@@ -48,7 +53,7 @@ async def list_alert_rules(
 @router.get("/v1/alert-rules/{rule_id}", response_model=AlertRuleOut)
 async def get_alert_rule(
     rule_id: str,
-    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory),
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
 ) -> AlertRuleOut:
     async with session_factory() as session:
         result = await session.execute(
@@ -66,14 +71,17 @@ async def get_alert_rule(
             status=rule.status,
             created_at=rule.created_at,
             updated_at=rule.updated_at,
+            interval=rule.interval,
+            window_seconds=rule.window_seconds,
+            cooldown_seconds=rule.cooldown_seconds,
         )
 
 
 @router.get("/v1/triggers", response_model=list[AlertTriggerOut])
 async def list_triggers(
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
     tenant_id: str | None = None,
     limit: int = 50,
-    session_factory: async_sessionmaker[AsyncSession] = Depends(get_session_factory),
 ) -> list[AlertTriggerOut]:
     async with session_factory() as session:
         query = (
@@ -96,6 +104,38 @@ async def list_triggers(
                 current_value=t.current_value,
                 triggered_at=t.triggered_at,
                 acknowledged=t.acknowledged,
+                interval=t.interval,
+                window_seconds=t.window_seconds,
             )
             for t in triggers
         ]
+
+
+@router.post("/v1/triggers/{trigger_id}/ack", response_model=AlertTriggerOut)
+async def acknowledge_trigger(
+    trigger_id: str,
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
+) -> AlertTriggerOut:
+    """Mark a trigger as acknowledged. Acknowledging twice is a no-op."""
+    async with session_factory() as session:
+        result = await session.execute(
+            select(AlertTriggerModel).where(AlertTriggerModel.id == trigger_id)
+        )
+        trigger = result.scalar_one_or_none()
+        if not trigger:
+            raise HTTPException(status_code=404, detail="trigger not found")
+        trigger.acknowledged = True
+        await session.commit()
+        return AlertTriggerOut(
+            id=trigger.id,
+            tenant_id=trigger.tenant_id,
+            rule_id=trigger.rule_id,
+            symbol=trigger.symbol,
+            comparator=trigger.comparator,
+            threshold=trigger.threshold,
+            current_value=trigger.current_value,
+            triggered_at=trigger.triggered_at,
+            acknowledged=trigger.acknowledged,
+            interval=trigger.interval,
+            window_seconds=trigger.window_seconds,
+        )

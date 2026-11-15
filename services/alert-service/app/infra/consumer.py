@@ -1,28 +1,40 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+from cryptoscope_shared.comparators import Comparator
 from cryptoscope_shared.events import CANDLE_UPDATED, DomainEvent
-from cryptoscope_shared.kafka import JsonConsumer, JsonProducer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.domain.models import AlertRule, AlertRuleStatus, Comparator
+from app.domain.evaluation import evaluate
+from app.domain.models import AlertRule, AlertRuleStatus
 from app.infra.db import AlertRuleModel, AlertTriggerModel
+from app.infra.history import PriceHistory
 from app.infra.notify import NotificationDispatcher, TriggerPayload
 
 
 class AlertEngine:
+    """Consumes domain events, evaluates rules, and fires triggers.
+
+    Rules live in the shared ``alert_rules`` table (owned by the command
+    service's migrations); the engine reads them directly and evaluates each
+    rule only against candles of the rule's own interval. A per-rule cooldown
+    read from the triggers table keeps sustained conditions from becoming
+    notification storms.
+    """
+
     def __init__(
         self,
-        consumer: JsonConsumer,
-        producer: JsonProducer,
+        consumer: Any,
+        producer: Any,
         alerts_topic: str,
         session_factory: async_sessionmaker[AsyncSession],
         logger: Any,
         dispatcher: NotificationDispatcher | None = None,
+        history: PriceHistory | None = None,
     ):
         self._consumer = consumer
         self._producer = producer
@@ -30,6 +42,7 @@ class AlertEngine:
         self._session_factory = session_factory
         self._logger = logger
         self._dispatcher = dispatcher or NotificationDispatcher()
+        self._history = history or PriceHistory()
 
     async def run(self) -> None:
         self._logger.info("alert engine starting")
@@ -61,14 +74,32 @@ class AlertEngine:
 
     async def _evaluate_candle_event(self, event: DomainEvent) -> None:
         symbol = event.data.get("symbol", "")
-        close = event.data.get("close", 0.0)
+        if not symbol:
+            return
+        interval = event.data.get("interval", "1m")
+        open_time_ms = int(event.data.get("open_time_ms") or event.data.get("timestamp") or 0)
+        close = float(event.data.get("close", 0.0))
         tenant_id = event.tenant_id
+
+        self._history.append(symbol, interval, open_time_ms, close)
+        closes = self._history.closes(symbol, interval)
 
         rules = await self._fetch_active_rules(tenant_id, symbol)
         for rule in rules:
-            triggered = self._evaluate_rule(rule, close)
+            if rule.interval != interval:
+                continue
+            if await self._cooldown_active(rule):
+                self._logger.debug(
+                    "trigger suppressed by cooldown",
+                    rule_id=rule.id,
+                    symbol=rule.symbol,
+                )
+                continue
+            triggered, current_value = evaluate(
+                rule.comparator.value, rule.threshold, rule.window_seconds, closes
+            )
             if triggered:
-                await self._fire_trigger(rule, close, tenant_id)
+                await self._fire_trigger(rule, current_value, tenant_id)
 
     async def _fetch_active_rules(self, tenant_id: str, symbol: str) -> list[AlertRule]:
         async with self._session_factory() as session:
@@ -90,26 +121,33 @@ class AlertEngine:
                     status=AlertRuleStatus(m.status),
                     created_at=m.created_at,
                     updated_at=m.updated_at,
+                    interval=m.interval,
+                    window_seconds=m.window_seconds,
+                    cooldown_seconds=m.cooldown_seconds,
                 )
                 for m in models
             ]
 
-    def _evaluate_rule(self, rule: AlertRule, current_value: float) -> bool:
-        if rule.comparator == Comparator.GT:
-            return current_value > rule.threshold
-        elif rule.comparator == Comparator.GTE:
-            return current_value >= rule.threshold
-        elif rule.comparator == Comparator.LT:
-            return current_value < rule.threshold
-        elif rule.comparator == Comparator.LTE:
-            return current_value <= rule.threshold
-        elif rule.comparator == Comparator.EQ:
-            return abs(current_value - rule.threshold) < 0.0001
-        return False
+    async def _cooldown_active(self, rule: AlertRule) -> bool:
+        """True when the rule fired within its cooldown window."""
+        last_triggered_at = await self._last_triggered_at(rule.id)
+        if last_triggered_at is None:
+            return False
+        elapsed = datetime.now(UTC) - last_triggered_at
+        return elapsed.total_seconds() < rule.cooldown_seconds
+
+    async def _last_triggered_at(self, rule_id: str) -> datetime | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(func.max(AlertTriggerModel.triggered_at)).where(
+                    AlertTriggerModel.rule_id == rule_id
+                )
+            )
+            return result.scalar()
 
     async def _fire_trigger(self, rule: AlertRule, current_value: float, tenant_id: str) -> None:
         trigger_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         trigger_data = {
             "id": trigger_id,
@@ -119,6 +157,8 @@ class AlertEngine:
             "comparator": rule.comparator.value,
             "threshold": rule.threshold,
             "current_value": current_value,
+            "interval": rule.interval,
+            "window_seconds": rule.window_seconds,
             "triggered_at": now.isoformat(),
         }
 
@@ -131,6 +171,8 @@ class AlertEngine:
                 comparator=rule.comparator.value,
                 threshold=rule.threshold,
                 current_value=current_value,
+                interval=rule.interval,
+                window_seconds=rule.window_seconds,
                 triggered_at=now,
             )
             session.add(trigger)
@@ -156,6 +198,8 @@ class AlertEngine:
                 threshold=rule.threshold,
                 current_value=current_value,
                 triggered_at=now.isoformat(),
+                interval=rule.interval,
+                window_seconds=rule.window_seconds,
             )
             results = self._dispatcher.dispatch(payload)
             if results:

@@ -1,4 +1,10 @@
-import type { AlertRule, AlertTrigger, Candle, IndicatorPoint } from "../types";
+import type {
+  AlertRule,
+  AlertTemplate,
+  AlertTrigger,
+  Candle,
+  IndicatorPoint,
+} from "../types";
 
 const GATEWAY = "/api";
 
@@ -64,15 +70,22 @@ export const client = {
     });
   },
 
-  createAlertRule(
-    symbol: string,
-    comparator: string,
-    threshold: number,
-  ): Promise<{ id: string }> {
+  createAlertRule(input: {
+    symbol: string;
+    comparator: string;
+    threshold: number;
+    interval?: string;
+    window_seconds?: number | null;
+    cooldown_seconds?: number;
+  }): Promise<{ id: string }> {
     return api("/v1/alert-rules", {
       method: "POST",
-      body: JSON.stringify({ symbol, comparator, threshold }),
+      body: JSON.stringify(input),
     });
+  },
+
+  listAlertTemplates(): Promise<AlertTemplate[]> {
+    return api("/v1/alert-templates");
   },
 
   listAlertRules(tenantId?: string): Promise<AlertRule[]> {
@@ -88,6 +101,10 @@ export const client = {
     const p = new URLSearchParams({ limit: String(limit) });
     if (tenantId) p.set("tenant_id", tenantId);
     return alertApi(`/v1/triggers?${p}`);
+  },
+
+  ackTrigger(triggerId: string): Promise<AlertTrigger> {
+    return alertApi(`/v1/triggers/${triggerId}/ack`, { method: "POST" });
   },
 
   exportCandles(

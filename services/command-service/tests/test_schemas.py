@@ -5,8 +5,8 @@ from pydantic import ValidationError
 
 from app.api.schemas import (
     CreateAlertRuleRequest,
-    CreateWatchlistRequest,
     CreatedResponse,
+    CreateWatchlistRequest,
 )
 
 
@@ -37,12 +37,37 @@ def test_create_alert_rule_request_valid() -> None:
     )
     assert req.symbol == "BTCUSDT"
     assert req.threshold == 50000.0
+    assert req.interval == "1m"
+    assert req.window_seconds is None
+    assert req.cooldown_seconds == 300
+
+
+def test_create_alert_rule_request_accepts_new_comparator_and_window() -> None:
+    req = CreateAlertRuleRequest(
+        symbol="BTCUSDT", comparator="pct_change_below", threshold=5.0, window_seconds=3600
+    )
+    assert req.comparator == "pct_change_below"
+    assert req.window_seconds == 3600
 
 
 def test_create_alert_rule_request_rejects_bad_comparator() -> None:
     with pytest.raises(ValidationError):
         CreateAlertRuleRequest(
             symbol="BTCUSDT", comparator="invalid", threshold=100.0
+        )
+
+
+def test_create_alert_rule_request_rejects_window_out_of_range() -> None:
+    with pytest.raises(ValidationError):
+        CreateAlertRuleRequest(
+            symbol="BTCUSDT", comparator="pct_change_below", threshold=5.0, window_seconds=30
+        )
+
+
+def test_create_alert_rule_request_rejects_unsupported_interval() -> None:
+    with pytest.raises(ValidationError):
+        CreateAlertRuleRequest(
+            symbol="BTCUSDT", comparator="above", threshold=100.0, interval="4h"
         )
 
 

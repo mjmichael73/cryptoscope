@@ -20,7 +20,14 @@ def watchlist_created(tenant_id: str, watchlist_id: str, name: str, symbols: lis
 
 
 def alert_rule_created(
-    tenant_id: str, rule_id: str, symbol: str, comparator: str, threshold: float
+    tenant_id: str,
+    rule_id: str,
+    symbol: str,
+    comparator: str,
+    threshold: float,
+    interval: str = "1m",
+    window_seconds: int | None = None,
+    cooldown_seconds: int = 300,
 ) -> DomainEvent:
     return DomainEvent(
         event_type=ALERT_RULE_CREATED,
@@ -31,5 +38,8 @@ def alert_rule_created(
             "symbol": symbol,
             "comparator": comparator,
             "threshold": threshold,
+            "interval": interval,
+            "window_seconds": window_seconds,
+            "cooldown_seconds": cooldown_seconds,
         },
     )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from cryptoscope_shared.logging import configure_logging
 from cryptoscope_shared.tracing import setup_tracing

@@ -85,6 +85,13 @@ func RateLimitMiddleware(limiter *ratelimit.Limiter, logger *slog.Logger) func(h
 				key = tid
 			}
 
+			if limiter == nil {
+				// No limiter configured — fail open rather than panic.
+				logger.Debug("rate limiter not configured, allowing request")
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			allowed, err := limiter.Allow(r.Context(), key)
 			if err != nil {
 				logger.Error("rate limit check failed", "error", err)

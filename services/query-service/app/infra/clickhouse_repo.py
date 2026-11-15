@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import clickhouse_connect
 from clickhouse_connect.driver.client import Client
@@ -42,7 +44,9 @@ class ClickHousePool:
         self._sem = asyncio.Semaphore(size)
         self._next = 0
 
-    async def query(self, q: str, params: dict[str, object]) -> list[tuple]:
+    async def query(
+        self, q: str, params: dict[str, object]
+    ) -> Sequence[Sequence[Any]]:
         async with self._sem:
             slot = self._acquire()
             try:
@@ -62,7 +66,9 @@ class ClickHousePool:
         return slot
 
     @staticmethod
-    def _run(slot: _ClientSlot, q: str, params: dict[str, object]) -> list[tuple]:
+    def _run(
+        slot: _ClientSlot, q: str, params: dict[str, object]
+    ) -> Sequence[Sequence[Any]]:
         return slot.client.query(q, parameters=params).result_rows
 
     def close(self) -> None:

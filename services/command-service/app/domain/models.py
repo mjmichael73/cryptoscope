@@ -8,13 +8,14 @@ patterns the API actually uses.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -25,7 +26,7 @@ from sqlalchemy.types import TypeDecorator
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _uuid() -> str:
@@ -112,8 +113,11 @@ class AlertRule(Base):
         UUIDType(), ForeignKey("tenants.id"), nullable=False
     )
     symbol: Mapped[str] = mapped_column(String(32), nullable=False)
-    comparator: Mapped[str] = mapped_column(String(8), nullable=False)
+    comparator: Mapped[str] = mapped_column(String(32), nullable=False)
     threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    interval: Mapped[str] = mapped_column(String(8), nullable=False, default="1m")
+    window_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cooldown_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=300)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

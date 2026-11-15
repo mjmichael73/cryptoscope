@@ -14,13 +14,13 @@ from __future__ import annotations
 import uuid
 from typing import Protocol
 
+from cryptoscope_shared.comparators import ALLOWED_INTERVALS, validate_rule_params
+
 from app.domain import events
 from app.domain.commands import CreateAlertRule, CreateWatchlist
 from app.domain.errors import ValidationError
 from app.domain.models import AlertRule, Watchlist
 from app.domain.repository import WriteRepository
-
-_VALID_COMPARATORS = {"above", "below"}
 
 
 class EventPublisher(Protocol):
@@ -58,8 +58,16 @@ class CommandService:
         return watchlist.id
 
     async def create_alert_rule(self, cmd: CreateAlertRule) -> str:
-        if cmd.comparator not in _VALID_COMPARATORS:
-            raise ValidationError("comparator must be one of: above, below")
+        try:
+            validate_rule_params(cmd.comparator, cmd.window_seconds)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        if cmd.interval not in ALLOWED_INTERVALS:
+            raise ValidationError(
+                f"interval must be one of: {', '.join(sorted(ALLOWED_INTERVALS))}"
+            )
+        if cmd.cooldown_seconds <= 0:
+            raise ValidationError("cooldown_seconds must be positive")
         if not cmd.symbol.strip():
             raise ValidationError("symbol must not be empty")
 
@@ -73,6 +81,9 @@ class CommandService:
             symbol=cmd.symbol.upper(),
             comparator=cmd.comparator,
             threshold=cmd.threshold,
+            interval=cmd.interval,
+            window_seconds=cmd.window_seconds,
+            cooldown_seconds=cmd.cooldown_seconds,
         )
         await self._repo.add_alert_rule(rule)
         await self._repo.record_command(cmd.tenant_id, cmd.idempotency_key, rule.id)
@@ -80,7 +91,14 @@ class CommandService:
 
         await self._publisher.publish(
             events.alert_rule_created(
-                cmd.tenant_id, rule.id, rule.symbol, rule.comparator, rule.threshold
+                cmd.tenant_id,
+                rule.id,
+                rule.symbol,
+                rule.comparator,
+                rule.threshold,
+                interval=rule.interval,
+                window_seconds=rule.window_seconds,
+                cooldown_seconds=rule.cooldown_seconds,
             )
         )
         return rule.id

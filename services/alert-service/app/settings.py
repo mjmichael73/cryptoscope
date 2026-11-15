@@ -27,6 +27,13 @@ class Settings(BaseServiceSettings):
 
     slack_webhook_url: str = Field(default="", alias="SLACK_WEBHOOK_URL")
 
+    telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
+    telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
+
+    # Rolling close history per (symbol, interval) used by crossing, percent
+    # change and RSI comparators. 480 closes of 1m candles ≈ 8 hours.
+    price_history_maxlen: int = Field(default=480, alias="PRICE_HISTORY_MAXLEN")
+
     webhook_url: str = Field(default="", alias="ALERT_WEBHOOK_URL")
     webhook_auth_header: str = Field(default="", alias="ALERT_WEBHOOK_AUTH")
 

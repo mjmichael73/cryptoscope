@@ -9,7 +9,8 @@ from __future__ import annotations
 import csv
 import io
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Annotated
 
 from cryptoscope_shared.tenant import TenantIdentity
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -29,11 +30,11 @@ def _service(request: Request) -> QueryService:
 @router.get("/candles", response_model=list[CandleOut])
 async def get_candles(
     request: Request,
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
     symbol: str = Query(min_length=1),
     interval: str = Query(default="1m"),
     from_ms: int = Query(default=0),
     to_ms: int = Query(default=2**63 - 1),
-    tenant: TenantIdentity = Depends(require_tenant),
 ) -> list[CandleOut]:
     try:
         candles = await _service(request).get_candles(
@@ -57,13 +58,13 @@ async def get_candles(
 @router.get("/indicators", response_model=list[IndicatorPointOut])
 async def get_indicator(
     request: Request,
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
     symbol: str = Query(min_length=1),
     kind: str = Query(alias="type"),
     interval: str = Query(default="1m"),
     period: int = Query(default=14, ge=1),
     from_ms: int = Query(default=0),
     to_ms: int = Query(default=2**63 - 1),
-    tenant: TenantIdentity = Depends(require_tenant),
 ) -> list[IndicatorPointOut]:
     try:
         points = await _service(request).get_indicator(
@@ -77,7 +78,7 @@ async def get_indicator(
 @router.get("/symbols", response_model=SymbolsOut)
 async def list_symbols(
     request: Request,
-    tenant: TenantIdentity = Depends(require_tenant),
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
 ) -> SymbolsOut:
     symbols = await _service(request).list_symbols(tenant.id)
     return SymbolsOut(symbols=symbols)
@@ -86,12 +87,12 @@ async def list_symbols(
 @router.get("/candles/export")
 async def export_candles(
     request: Request,
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
     symbol: str = Query(min_length=1),
     interval: str = Query(default="1m"),
     from_ms: int = Query(default=0),
     to_ms: int = Query(default=2**63 - 1),
     fmt: str = Query(default="csv", alias="format"),
-    tenant: TenantIdentity = Depends(require_tenant),
 ) -> Response:
     try:
         candles = await _service(request).get_candles(
@@ -105,7 +106,7 @@ async def export_candles(
             {
                 "open_time_ms": c.open_time_ms,
                 "open_time": datetime.fromtimestamp(
-                    c.open_time_ms / 1000, tz=timezone.utc
+                    c.open_time_ms / 1000, tz=UTC
                 ).isoformat(),
                 "open": c.open,
                 "high": c.high,
@@ -130,7 +131,7 @@ async def export_candles(
         "open_time_ms", "open_time", "open", "high", "low", "close", "volume",
     ])
     for c in candles:
-        ts = datetime.fromtimestamp(c.open_time_ms / 1000, tz=timezone.utc).isoformat()
+        ts = datetime.fromtimestamp(c.open_time_ms / 1000, tz=UTC).isoformat()
         writer.writerow([c.open_time_ms, ts, c.open, c.high, c.low, c.close, c.volume])
     return Response(
         content=buf.getvalue(),

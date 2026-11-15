@@ -284,3 +284,85 @@ func newTestGateway() *Gateway {
 	}
 	return New(nil, cfg, logger, nil, nil)
 }
+
+func TestRateLimitMiddlewareFailsOpenWithoutLimiter(t *testing.T) {
+	var next http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/candles", nil)
+	w := httptest.NewRecorder()
+	RateLimitMiddleware(nil, newSlog(&strings.Builder{}))(next).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected fail-open 200 without limiter, got %d", w.Code)
+	}
+}
+
+func TestAckTriggerRouteProxiesToAlertService(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/triggers/trg-1/ack" {
+			http.Error(w, `{"error":"unexpected"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": "trg-1", "acknowledged": true})
+	}))
+	defer backend.Close()
+
+	gw := New(nil, &config.Config{
+		DevMode:     true,
+		CommandHTTP: "http://localhost:18002",
+		AlertHTTP:   backend.URL,
+	}, newSlog(&strings.Builder{}), nil, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/triggers/trg-1/ack", nil)
+	w := httptest.NewRecorder()
+	gw.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 from ack proxy, got %d: %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["acknowledged"] != true {
+		t.Fatalf("expected acknowledged true, got %v", body)
+	}
+}
+
+func TestAlertTemplatesRouteProxiesToCommandService(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/alert-templates" {
+			http.Error(w, `{"error":"unexpected"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"id": "big-drop-1h", "comparator": "pct_change_below"},
+		})
+	}))
+	defer backend.Close()
+
+	gw := New(nil, &config.Config{
+		DevMode:     true,
+		CommandHTTP: backend.URL,
+		AlertHTTP:   "http://localhost:18003",
+	}, newSlog(&strings.Builder{}), nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/alert-templates", nil)
+	w := httptest.NewRecorder()
+	gw.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 from templates proxy, got %d: %s", w.Code, w.Body.String())
+	}
+	var body []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body) != 1 || body[0]["id"] != "big-drop-1h" {
+		t.Fatalf("expected template catalog, got %v", body)
+	}
+}

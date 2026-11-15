@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 from app.api.schemas import CandleOut, IndicatorPointOut, SymbolsOut
 from app.domain.errors import ValidationError as DomainValidationError

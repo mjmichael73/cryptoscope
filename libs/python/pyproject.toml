@@ -23,6 +23,9 @@ packages = ["cryptoscope_shared", "cryptoscope_proto"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Generated protobuf stubs are produced by `make proto` and must never be
+# lint-edited; regenerated code would revert any ruff fixes anyway.
+extend-exclude = ["cryptoscope_proto"]
 
 [tool.mypy]
 python_version = "3.11"

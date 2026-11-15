@@ -24,3 +24,6 @@ class CreateAlertRule:
     symbol: str
     comparator: str
     threshold: float
+    interval: str = "1m"
+    window_seconds: int | None = None
+    cooldown_seconds: int = 300

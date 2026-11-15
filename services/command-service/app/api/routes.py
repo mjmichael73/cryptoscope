@@ -6,18 +6,22 @@ to the application service, and map domain errors to status codes.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from cryptoscope_shared.tenant import TenantIdentity
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.deps import require_idempotency_key, require_tenant
 from app.api.schemas import (
-    CreatedResponse,
+    AlertTemplateOut,
     CreateAlertRuleRequest,
+    CreatedResponse,
     CreateWatchlistRequest,
 )
 from app.domain.commands import CreateAlertRule, CreateWatchlist
 from app.domain.errors import ConflictError, ValidationError
 from app.domain.service import CommandService
+from app.domain.templates import ALERT_TEMPLATES
 from app.infra.repository import SqlAlchemyWriteRepository
 
 router = APIRouter(prefix="/v1")
@@ -39,8 +43,8 @@ async def _service(request: Request) -> CommandService:
 async def create_watchlist(
     body: CreateWatchlistRequest,
     request: Request,
-    tenant: TenantIdentity = Depends(require_tenant),
-    idempotency_key: str = Depends(require_idempotency_key),
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
+    idempotency_key: Annotated[str, Depends(require_idempotency_key)],
 ) -> CreatedResponse:
     service = await _service(request)
     try:
@@ -69,8 +73,8 @@ async def create_watchlist(
 async def create_alert_rule(
     body: CreateAlertRuleRequest,
     request: Request,
-    tenant: TenantIdentity = Depends(require_tenant),
-    idempotency_key: str = Depends(require_idempotency_key),
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
+    idempotency_key: Annotated[str, Depends(require_idempotency_key)],
 ) -> CreatedResponse:
     service = await _service(request)
     try:
@@ -81,6 +85,9 @@ async def create_alert_rule(
                 symbol=body.symbol,
                 comparator=body.comparator,
                 threshold=body.threshold,
+                interval=body.interval,
+                window_seconds=body.window_seconds,
+                cooldown_seconds=body.cooldown_seconds,
             )
         )
     except ValidationError as exc:
@@ -90,3 +97,8 @@ async def create_alert_rule(
     finally:
         await request.state.session.close()
     return CreatedResponse(id=rule_id)
+
+
+@router.get("/alert-templates", response_model=list[AlertTemplateOut])
+async def list_alert_templates() -> list[AlertTemplateOut]:
+    return [AlertTemplateOut(**template) for template in ALERT_TEMPLATES]

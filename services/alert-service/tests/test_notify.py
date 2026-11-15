@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,10 +15,10 @@ from app.infra.notify import (
     NotificationChannel,
     NotificationDispatcher,
     SlackWebhookChannel,
+    TelegramChannel,
     TriggerPayload,
     WebhookChannel,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -42,7 +42,7 @@ def _make_trigger(**overrides: Any) -> TriggerPayload:
 class _RecordingHandler(BaseHTTPRequestHandler):
     """Minimal HTTP handler that records incoming requests."""
 
-    requests: list[dict[str, Any]] = []
+    requests: ClassVar[list[dict[str, Any]]] = []
 
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", 0))
@@ -303,7 +303,7 @@ class TestNotificationDispatcher:
 
         ch1.send.assert_called_once()
         ch2.send.assert_called_once()
-        assert results == {"MagicMock": True, "MagicMock": True}
+        assert results == {"MagicMock": True}
 
     def test_dispatch_continues_after_channel_failure(self) -> None:
         ch1 = MagicMock(spec=NotificationChannel)
@@ -312,7 +312,7 @@ class TestNotificationDispatcher:
         ch2.send.return_value = True
 
         d = NotificationDispatcher([ch1, ch2])
-        results = d.dispatch(_make_trigger())
+        d.dispatch(_make_trigger())
 
         assert ch1.send.called
         assert ch2.send.called
@@ -347,3 +347,54 @@ class TestNotificationDispatcher:
             assert len(_RecordingHandler.requests) == 2
         finally:
             server.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Telegram channel
+# ---------------------------------------------------------------------------
+
+
+class TestTelegramChannel:
+    def test_send_posts_message_to_bot_api(self) -> None:
+        server, thread = _start_server()
+        host, port = server.server_address
+        channel = TelegramChannel(
+            bot_token="t0k3n",
+            chat_id="12345",
+            base_url=f"http://{host}:{port}",
+        )
+        try:
+            assert channel.send(_make_trigger()) is True
+            assert len(_RecordingHandler.requests) == 1
+            request = _RecordingHandler.requests[0]
+            assert request["path"] == "/bott0k3n/sendMessage"
+            body = json.loads(request["body"])
+            assert body["chat_id"] == "12345"
+            assert "BTCUSDT" in body["text"]
+            assert str(50000.0) in body["text"]
+            assert body["parse_mode"] == "HTML"
+        finally:
+            server.shutdown()
+            thread.join()
+
+    def test_send_returns_false_when_api_unreachable(self) -> None:
+        channel = TelegramChannel(
+            bot_token="t0k3n",
+            chat_id="12345",
+            base_url="http://127.0.0.1:1",  # nothing listening here
+        )
+        assert channel.send(_make_trigger()) is False
+
+    def test_dispatch_includes_telegram_channel(self) -> None:
+        server, thread = _start_server()
+        host, port = server.server_address
+        d = NotificationDispatcher([
+            TelegramChannel("t0k3n", "12345", base_url=f"http://{host}:{port}"),
+        ])
+        try:
+            results = d.dispatch(_make_trigger())
+            assert results["TelegramChannel"] is True
+            assert len(_RecordingHandler.requests) == 1
+        finally:
+            server.shutdown()
+            thread.join()

@@ -4,15 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
+from cryptoscope_shared.comparators import Comparator  # re-exported for service imports
 from cryptoscope_shared.events import DomainEvent  # noqa: F401 — re-exported for test imports
-
-
-class Comparator(str, Enum):
-    GT = "gt"
-    GTE = "gte"
-    LT = "lt"
-    LTE = "lte"
-    EQ = "eq"
 
 
 class AlertRuleStatus(str, Enum):
@@ -31,6 +24,9 @@ class AlertRule:
     status: AlertRuleStatus
     created_at: datetime
     updated_at: datetime
+    interval: str = "1m"
+    window_seconds: int | None = None
+    cooldown_seconds: int = 300
 
 
 @dataclass
@@ -44,6 +40,8 @@ class AlertTrigger:
     current_value: float
     triggered_at: datetime
     acknowledged: bool
+    interval: str = "1m"
+    window_seconds: int | None = None
 
 
 @dataclass

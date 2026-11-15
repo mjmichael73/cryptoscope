@@ -13,10 +13,12 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from app.api.routes import router
 from app.infra.consumer import AlertEngine
 from app.infra.db import build_engine, build_session_factory
+from app.infra.history import PriceHistory
 from app.infra.notify import (
     EmailChannel,
     NotificationDispatcher,
     SlackWebhookChannel,
+    TelegramChannel,
     WebhookChannel,
 )
 from app.settings import Settings
@@ -51,6 +53,7 @@ async def lifespan(app: FastAPI) -> Any:
     alert_engine = AlertEngine(
         consumer, producer, settings.alerts_topic,
         app.state.session_factory, logger, dispatcher,
+        history=PriceHistory(maxlen=settings.price_history_maxlen),
     )
     engine_task = asyncio.create_task(alert_engine.run())
 
@@ -83,6 +86,14 @@ def _build_dispatcher(settings: Settings) -> NotificationDispatcher:
 
     if settings.slack_webhook_url:
         dispatcher.add_channel(SlackWebhookChannel(settings.slack_webhook_url))
+
+    if settings.telegram_bot_token and settings.telegram_chat_id:
+        dispatcher.add_channel(
+            TelegramChannel(
+                bot_token=settings.telegram_bot_token,
+                chat_id=settings.telegram_chat_id,
+            )
+        )
 
     if settings.webhook_url:
         headers = {}

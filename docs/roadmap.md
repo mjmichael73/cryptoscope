@@ -47,11 +47,11 @@ Add more analytical value to the candle data.
 
 The alert pipeline works but is minimal.
 
-- [ ] Support more than above/below comparators (crossing, percentage change, RSI thresholds)
-- [ ] Add notification channels: email (via SendGrid/SES), Slack webhooks, Telegram bot
-- [ ] Alert cooldown/throttle to avoid notification storms
-- [ ] Alert rule templates for common patterns (e.g., "alert if BTC drops 5% in 1 hour")
-- [ ] Dashboard for alert history and acknowledgment
+- [x] Support more than above/below comparators (crossing, percentage change, RSI thresholds)
+- [x] Add notification channels: email (SMTP), Slack webhooks, Telegram bot
+- [x] Alert cooldown/throttle to avoid notification storms
+- [x] Alert rule templates for common patterns (e.g., "alert if BTC drops 5% in 1 hour")
+- [x] Dashboard for alert history and acknowledgment
 
 ## Phase 5 — Frontend polish 🟢
 
@@ -85,6 +85,6 @@ Operational maturity for running in production.
 | Test coverage             | > 80%            | Partial          |
 | API p95 latency           | < 100ms          | Unknown          |
 | Uptime                    | 99.9%            | Local dev only   |
-| Alert notification channels | ≥ 2 (email + Slack) | Email, Slack, generic webhook |
+| Alert notification channels | ≥ 2 (email + Slack) | Email, Slack, Telegram, generic webhook |
 | Kubernetes deployable     | Yes              | Yes — manifests, overlays, HPAs |
 | Documentation             | Complete         | In progress      |

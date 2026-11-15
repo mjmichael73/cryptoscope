@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Extended alert-rule comparators — crossing (`crosses_above`/`crosses_below`), percent change (`pct_change_above`/`pct_change_below`) and RSI(14) thresholds (`rsi_above`/`rsi_below`) — defined once in the shared `cryptoscope_shared.comparators` vocabulary module
+- Telegram notification channel for alerts (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`)
+- Per-rule alert cooldown (`cooldown_seconds`, default 300s) that suppresses repeat triggers of a sustained condition
+- Alert rule templates for common patterns ("big drop in 1 hour", "RSI overbought", ...) served by the command service at `GET /v1/alert-templates`
+- Trigger acknowledgment: `POST /v1/triggers/{trigger_id}/ack` on the alert service, proxied through the gateway, with an All/Unacknowledged filter in the frontend trigger dashboard
+- Alembic migration `0004_alert_rule_params`: `interval`, `window_seconds`, `cooldown_seconds` on `alert_rules`; `interval`, `window_seconds` on `alert_triggers`
 - Comprehensive project documentation in `docs/`
 - `docs/production.md` — production deployment guide
 - `docs/architecture.md` — detailed system architecture with diagrams
@@ -23,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docker-compose.prod.yml` — production stack for Docker Swarm, with `make swarm-deploy`, `swarm-secrets` and `swarm-remove`
 
 ### Changed
+- Alert rules carry an `interval` (1m, 5m, 1h); the alert engine evaluates each rule only against candles of its own interval
+- Percent-change comparators are evaluated over an in-memory rolling close history sized by `PRICE_HISTORY_MAXLEN` (default 480)
+- Alert triggers record the interval and window that produced them, and notifications include that context
 - Production overlay no longer pins static `replicas` for the HPA-managed services; the HPAs own the replica counts
 - Dev compose reads `POSTGRES_DSN` from `.env` instead of embedding it
 - Rewrote all existing docs to be project-specific instead of generic

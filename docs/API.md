@@ -225,16 +225,35 @@ Creates a new price alert rule.
 ```json
 {
   "symbol": "BTCUSDT",
-  "comparator": "above",
-  "threshold": 30000.00
+  "comparator": "crosses_above",
+  "threshold": 30000.00,
+  "interval": "1m",
+  "window_seconds": null,
+  "cooldown_seconds": 300
 }
 ```
 
-| Field         | Type   | Required | Constraints               | Description                     |
-| ------------- | ------ | -------- | ------------------------- | ------------------------------- |
-| `symbol`      | string | yes      | 1–32 characters           | Trading pair to watch           |
-| `comparator`  | string | yes      | `"above"` or `"below"`    | Trigger direction               |
-| `threshold`   | float  | yes      | —                         | Price level that triggers alert |
+| Field             | Type   | Required | Default | Constraints                          | Description                               |
+| ----------------- | ------ | -------- | ------- | ------------------------------------ | ----------------------------------------- |
+| `symbol`          | string | yes      | —       | 1–32 characters                      | Trading pair to watch                     |
+| `comparator`      | string | yes      | —       | see comparators below                | Trigger condition                         |
+| `threshold`       | float  | yes      | —       | —                                    | Price level / percent / RSI threshold     |
+| `interval`        | string | no       | `"1m"`  | `"1m"`, `"5m"`, `"1h"`               | Candle interval the rule is evaluated on  |
+| `window_seconds`  | int    | no       | `null`  | 60–86400, `pct_change_*` only        | Lookback window for percent-change rules  |
+| `cooldown_seconds`| int    | no       | `300`   | ≥ 1                                  | Min seconds between triggers of this rule |
+
+**Comparators**
+
+| Comparator          | Meaning                                                        |
+| ------------------- | -------------------------------------------------------------- |
+| `above`             | Close is above `threshold`                                     |
+| `below`             | Close is below `threshold`                                     |
+| `crosses_above`     | Previous close ≤ threshold and current close > threshold       |
+| `crosses_below`     | Previous close ≥ threshold and current close < threshold       |
+| `pct_change_above`  | Change over `window_seconds` is ≥ threshold (percent)          |
+| `pct_change_below`  | Change over `window_seconds` is ≤ −threshold (percent)         |
+| `rsi_above`         | RSI(14) is above `threshold`                                   |
+| `rsi_below`         | RSI(14) is below `threshold`                                   |
 
 **Response** `201 Created`
 
@@ -249,7 +268,33 @@ Creates a new price alert rule.
 | Status | Body                        | Cause                             |
 | ------ | --------------------------- | --------------------------------- |
 | 409    | `{"detail": "..."}`         | Duplicate idempotency key         |
-| 422    | `{"detail": "..."}`         | Invalid comparator or symbol      |
+| 422    | `{"detail": "..."}`         | Invalid comparator, symbol, interval or window |
+
+---
+
+### `GET /v1/alert-templates`
+
+Returns the catalog of alert rule templates (common patterns such as
+"alert if BTC drops 5% in 1 hour"). The gateway reverse-proxies this to the
+command service. Price-level templates leave `threshold` to the caller;
+pattern templates pin `threshold` and `window_seconds`.
+
+**Response** `200 OK`
+
+```json
+[
+  {
+    "id": "big-drop-1h",
+    "name": "Big drop in 1 hour",
+    "description": "Alert when the price loses 5% or more within an hour.",
+    "comparator": "pct_change_below",
+    "threshold": 5.0,
+    "window_seconds": 3600,
+    "interval": "1m",
+    "cooldown_seconds": 900
+  }
+]
+```
 
 ---
 
@@ -279,7 +324,10 @@ Lists alert rules, optionally filtered by tenant.
     "threshold": 30000.00,
     "status": "active",
     "created_at": "2026-08-20T12:00:00Z",
-    "updated_at": "2026-08-20T12:00:00Z"
+    "updated_at": "2026-08-20T12:00:00Z",
+    "interval": "1m",
+    "window_seconds": null,
+    "cooldown_seconds": 300
   }
 ]
 ```
@@ -307,7 +355,10 @@ Returns a single alert rule by ID.
   "threshold": 30000.00,
   "status": "active",
   "created_at": "2026-08-20T12:00:00Z",
-  "updated_at": "2026-08-20T12:00:00Z"
+  "updated_at": "2026-08-20T12:00:00Z",
+  "interval": "1m",
+  "window_seconds": null,
+  "cooldown_seconds": 300
 }
 ```
 
@@ -343,10 +394,34 @@ Lists alert trigger events, most recent first.
     "threshold": 30000.00,
     "current_value": 30150.25,
     "triggered_at": "2026-08-20T14:30:00Z",
-    "acknowledged": false
+    "acknowledged": false,
+    "interval": "1m",
+    "window_seconds": null
   }
 ]
 ```
+
+---
+
+### `POST /v1/triggers/{trigger_id}/ack`
+
+Marks a trigger as acknowledged. Acknowledging an already-acknowledged
+trigger is a no-op. The gateway reverse-proxies this to the alert service.
+
+**Path parameters**
+
+| Parameter    | Type   | Description        |
+| ------------ | ------ | ------------------ |
+| `trigger_id` | string | Alert trigger UUID |
+
+**Response** `200 OK` — the updated trigger object (same shape as
+`GET /v1/triggers` items, with `"acknowledged": true`).
+
+**Errors**
+
+| Status | Body                              | Cause                    |
+| ------ | --------------------------------- | ------------------------ |
+| 404    | `{"detail": "trigger not found"}` | Trigger does not exist   |
 
 ---
 

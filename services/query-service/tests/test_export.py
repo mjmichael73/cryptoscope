@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-import json
+from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -28,7 +28,6 @@ def settings() -> Settings:
 
 def _app(repo: FakeReadRepository) -> Any:
     """Build a test app wired to the given fake repo."""
-    from app.main import create_app
 
     app = create_app()
     from app.domain.service import QueryService

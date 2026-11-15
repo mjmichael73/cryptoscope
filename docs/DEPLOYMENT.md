@@ -174,6 +174,9 @@ All configuration is done via environment variables. See `.env.example` for the 
 | `SMTP_HOST`                | alert-service  | SMTP server for email notifications      |
 | `SMTP_FROM` / `SMTP_TO`   | alert-service  | Sender and recipient addresses            |
 | `SLACK_WEBHOOK_URL`        | alert-service  | Slack incoming webhook URL               |
+| `TELEGRAM_BOT_TOKEN`       | alert-service  | Telegram bot token for notifications     |
+| `TELEGRAM_CHAT_ID`         | alert-service  | Telegram chat/channel ID to post to      |
+| `PRICE_HISTORY_MAXLEN`     | alert-service  | Rolling close history size per symbol (percent-change comparators) |
 | `ALERT_WEBHOOK_URL`        | alert-service  | Generic webhook POST URL                 |
 
 ## Troubleshooting
