@@ -22,7 +22,7 @@ const INDICATOR_TYPES = [
 export default function MarketData() {
   const [symbols, setSymbols] = useState<string[]>([]);
   const [symbol, setSymbol] = useState("BTCUSDT");
-  const [interval_, setInterval_] = useState("1h");
+  const [interval_, setInterval_] = useState("1m");
   const [loadingCandles, setLoadingCandles] = useState(false);
   const [initialCandles, setInitialCandles] = useState<Candle[]>([]);
   const { candles, connected, reconnects } = useCandleStream(symbol, interval_, initialCandles);
@@ -87,10 +87,16 @@ export default function MarketData() {
   }, [symbol, interval_]);
 
   useEffect(() => {
-    if (symbol) {
-      loadCandles();
-      loadIndicators();
-    }
+    if (!symbol) return;
+
+    const refresh = () => {
+      void loadCandles();
+      void loadIndicators();
+    };
+
+    refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    return () => window.clearInterval(timer);
   }, [loadCandles, loadIndicators, symbol, interval_]);
 
   return (

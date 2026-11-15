@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -14,8 +15,8 @@ class Base(DeclarativeBase):
 class AlertRuleModel(Base):
     __tablename__ = "alert_rules"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, index=True)
     symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     comparator: Mapped[str] = mapped_column(String(32), nullable=False)
     threshold: Mapped[float] = mapped_column(Float, nullable=False)
@@ -34,10 +35,10 @@ class AlertRuleModel(Base):
 class AlertTriggerModel(Base):
     __tablename__ = "alert_triggers"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, index=True)
     rule_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("alert_rules.id"), nullable=False
+        UUID(as_uuid=False), ForeignKey("alert_rules.id"), nullable=False
     )
     symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     comparator: Mapped[str] = mapped_column(String(32), nullable=False)

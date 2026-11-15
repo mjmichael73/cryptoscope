@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mojimich2015/cryptoscope/libs/go/ratelimit"
+	cryptov1 "github.com/mojimich2015/cryptoscope/proto/cryptoscope/v1"
 	"github.com/mojimich2015/cryptoscope/services/api-gateway/internal/auth"
 	"github.com/mojimich2015/cryptoscope/services/api-gateway/internal/client"
 	"github.com/mojimich2015/cryptoscope/services/api-gateway/internal/config"
@@ -140,7 +141,7 @@ func (g *Gateway) getCandles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"candles": nonil(candles)})
+	writeJSON(w, http.StatusOK, map[string]any{"candles": candleResponses(candles)})
 }
 
 func (g *Gateway) getIndicator(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +170,7 @@ func (g *Gateway) getIndicator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"points": nonil(points)})
+	writeJSON(w, http.StatusOK, map[string]any{"points": indicatorResponses(points)})
 }
 
 func (g *Gateway) listSymbols(w http.ResponseWriter, r *http.Request) {
@@ -246,7 +247,7 @@ func (g *Gateway) exportCandles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"candles": nonil(candles), "format": format})
+	writeJSON(w, http.StatusOK, map[string]any{"candles": candleResponses(candles), "format": format})
 }
 
 func (g *Gateway) proxyToCommand(w http.ResponseWriter, r *http.Request) {
@@ -272,6 +273,46 @@ func nonil[T any](s []T) []T {
 		return []T{}
 	}
 	return s
+}
+
+type candleResponse struct {
+	OpenTimeMs int64   `json:"open_time_ms"`
+	Open       float64 `json:"open"`
+	High       float64 `json:"high"`
+	Low        float64 `json:"low"`
+	Close      float64 `json:"close"`
+	Volume     float64 `json:"volume"`
+}
+
+func candleResponses(candles []*cryptov1.Candle) []candleResponse {
+	responses := make([]candleResponse, 0, len(candles))
+	for _, candle := range candles {
+		responses = append(responses, candleResponse{
+			OpenTimeMs: candle.OpenTime,
+			Open:       candle.Open,
+			High:       candle.High,
+			Low:        candle.Low,
+			Close:      candle.Close,
+			Volume:     candle.Volume,
+		})
+	}
+	return responses
+}
+
+type indicatorResponse struct {
+	TimeMs int64   `json:"time_ms"`
+	Value  float64 `json:"value"`
+}
+
+func indicatorResponses(points []*cryptov1.IndicatorPoint) []indicatorResponse {
+	responses := make([]indicatorResponse, 0, len(points))
+	for _, point := range points {
+		responses = append(responses, indicatorResponse{
+			TimeMs: point.Time,
+			Value:  point.Value,
+		})
+	}
+	return responses
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

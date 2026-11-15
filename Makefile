@@ -28,6 +28,7 @@ help: ## Show this help
 up: ## Apply database migrations, then start all services via Docker
 	$(COMPOSE) --profile dev run --build --rm --no-deps command-service alembic upgrade head
 	$(COMPOSE) --profile dev up -d --build
+	./scripts/bootstrap.sh
 
 .PHONY: up-all
 up-all: ## Start backend services + frontend dev server with hot-reload
@@ -43,7 +44,7 @@ up-all: ## Start backend services + frontend dev server with hot-reload
 
 .PHONY: down
 down: ## Stop the stack and remove volumes
-	$(COMPOSE) down -v
+	$(COMPOSE) --profile dev down -v
 
 .PHONY: restart
 restart: ## Restart a service (usage: make restart svc=api-gateway)

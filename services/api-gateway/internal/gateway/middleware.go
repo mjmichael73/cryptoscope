@@ -15,7 +15,6 @@ import (
 type responseWriter struct {
 	http.ResponseWriter
 	status int
-	body   []byte
 }
 
 func (rw *responseWriter) WriteHeader(code int) {
@@ -24,8 +23,14 @@ func (rw *responseWriter) WriteHeader(code int) {
 }
 
 func (rw *responseWriter) Write(b []byte) (int, error) {
-	rw.body = append(rw.body, b...)
 	return rw.ResponseWriter.Write(b)
+}
+
+// Flush preserves streaming support for handlers such as the SSE endpoint.
+func (rw *responseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func LoggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {

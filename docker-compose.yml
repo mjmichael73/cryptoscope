@@ -226,7 +226,8 @@ services:
       CLICKHOUSE_DB: cryptoscope
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:?Set CLICKHOUSE_USER in .env}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}
-      TENANT_ID: demo-tenant
+      # Match the demo tenant seeded by command-service migrations and used by the frontend.
+      TENANT_ID: 11111111-2222-3333-4444-555555555555
       INTERVALS: 1m,5m,1h,1d
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAMESPACE: cryptoscope
