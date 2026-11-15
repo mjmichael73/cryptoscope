@@ -164,6 +164,45 @@ Returns the list of symbols tracked for the current tenant.
 
 ---
 
+### `GET /v1/symbols/search`
+
+Searches symbols with historical candle coverage and returns per-symbol
+summary metadata. An empty query matches all symbols.
+
+**Query parameters**
+
+| Parameter | Type   | Required | Constraints  | Description                                   |
+| --------- | ------ | -------- | ------------ | --------------------------------------------- |
+| `q`       | string | no       | ≤ 100 chars  | Case-insensitive substring filter             |
+| `limit`   | int    | no       | 1–200 (50)   | Maximum number of results                     |
+
+**Response** `200 OK`
+
+```json
+{
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "first_open_time_ms": 1700000000000,
+      "last_open_time_ms": 1700000600000,
+      "candle_count": 60,
+      "intervals": ["1m", "5m"]
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Status | Body                                              | Cause                       |
+| ------ | ------------------------------------------------- | --------------------------- |
+| 401    | `{"detail": "missing tenant identity"}`           | Missing tenant headers      |
+| 422    | `{"detail": "limit must be between 1 and 200"}`   | `limit` out of range        |
+| 422    | `{"detail": "query must be at most 100 characters"}` | `q` too long             |
+| 500    | `{"error": "query service error"}`                | Backend failure             |
+
+---
+
 ## Command endpoints (write side)
 
 The gateway reverse-proxies these to the command service. All write endpoints
@@ -438,6 +477,7 @@ communication (used by the api-gateway). The proto definitions are in
 | `GetCandles`     | `GetCandlesRequest`      | `GetCandlesResponse`     | Fetch OHLCV candles    |
 | `GetIndicator`   | `GetIndicatorRequest`    | `GetIndicatorResponse`   | Compute an indicator   |
 | `ListSymbols`    | `ListSymbolsRequest`     | `ListSymbolsResponse`    | List tracked symbols   |
+| `SearchSymbols`  | `SearchSymbolsRequest`   | `SearchSymbolsResponse`  | Search symbols with historical coverage metadata |
 
 ### CommandService
 

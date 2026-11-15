@@ -39,7 +39,7 @@ Add more analytical value to the candle data.
 
 - [x] Technical indicators: SMA, EMA, RSI, MACD, Bollinger Bands (in `query-service/app/domain/indicators.py`)
 - [x] Multi-timeframe candle aggregation (stream-processor already supports configurable intervals)
-- [ ] Historical symbol search and discovery API
+- [x] Historical symbol search and discovery API (`GET /v1/symbols/search` with coverage metadata)
 - [x] Export candles as CSV/JSON from the query API
 - [x] Real-time updates via SSE candle streaming (gateway `StreamHub` → frontend `useCandleStream`)
 

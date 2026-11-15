@@ -90,6 +90,18 @@ func (c *QueryClient) ListSymbols(ctx context.Context, tenantID string) ([]strin
 	return resp.Symbols, nil
 }
 
+func (c *QueryClient) SearchSymbols(ctx context.Context, tenantID, query string, limit int32) ([]*cryptov1.SymbolSummary, error) {
+	resp, err := c.client.SearchSymbols(ctx, &cryptov1.SearchSymbolsRequest{
+		TenantId: tenantID,
+		Query:    query,
+		Limit:    limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("search symbols: %w", err)
+	}
+	return resp.Symbols, nil
+}
+
 func (c *QueryClient) Close() error {
 	return c.conn.Close()
 }

@@ -250,6 +250,59 @@ func TestListSymbolsReturns500WithNilClient(t *testing.T) {
 	}
 }
 
+func TestSearchSymbolsReturnsBadRequestWhenLimitInvalid(t *testing.T) {
+	gw := newTestGateway()
+	mux := chi.NewRouter()
+	mux.Use(RecoveryMiddleware(gw.logger))
+	mux.Use(TenantMiddleware(gw.logger, false))
+	mux.Get("/v1/symbols/search", gw.searchSymbols)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/symbols/search?limit=0", nil)
+	req.Header.Set("X-Tenant-Id", "tenant-1")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid limit, got %d", w.Code)
+	}
+}
+
+func TestSearchSymbolsReturnsBadRequestWhenQueryTooLong(t *testing.T) {
+	gw := newTestGateway()
+	mux := chi.NewRouter()
+	mux.Use(RecoveryMiddleware(gw.logger))
+	mux.Use(TenantMiddleware(gw.logger, false))
+	mux.Get("/v1/symbols/search", gw.searchSymbols)
+
+	long := strings.Repeat("A", 101)
+	req := httptest.NewRequest(http.MethodGet, "/v1/symbols/search?q="+long, nil)
+	req.Header.Set("X-Tenant-Id", "tenant-1")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for overlong query, got %d", w.Code)
+	}
+}
+
+func TestSearchSymbolsDefaultsLimit(t *testing.T) {
+	gw := newTestGateway()
+	mux := chi.NewRouter()
+	mux.Use(RecoveryMiddleware(gw.logger))
+	mux.Use(TenantMiddleware(gw.logger, false))
+	mux.Get("/v1/symbols/search", gw.searchSymbols)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/symbols/search", nil)
+	req.Header.Set("X-Tenant-Id", "tenant-1")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	// nil client will cause 500, not 400 (means validation passed)
+	if w.Code == http.StatusBadRequest {
+		t.Fatal("expected validation to pass with no params")
+	}
+}
+
 func TestNewRedisClient(t *testing.T) {
 	client := NewRedisClient("localhost:6379", "", 0, false)
 	if client == nil {

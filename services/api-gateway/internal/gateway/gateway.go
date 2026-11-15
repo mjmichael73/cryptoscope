@@ -50,33 +50,34 @@ func New(query *client.QueryClient, cfg *config.Config, logger *slog.Logger, lim
 
 	g.mux = chi.NewRouter()
 
-g.mux.Use(RecoveryMiddleware(logger))
-g.mux.Use(LoggingMiddleware(logger))
-g.mux.Use(SecurityHeaders)
-if len(cfg.CORSAllowedOrigins) > 0 {
-	g.mux.Use(CORSAllowedOrigins(cfg.CORSAllowedOrigins))
-}
-g.mux.Use(TenantMiddleware(logger, cfg.DevMode))
-g.mux.Use(TenantForwardingMiddleware)
+	g.mux.Use(RecoveryMiddleware(logger))
+	g.mux.Use(LoggingMiddleware(logger))
+	g.mux.Use(SecurityHeaders)
+	if len(cfg.CORSAllowedOrigins) > 0 {
+		g.mux.Use(CORSAllowedOrigins(cfg.CORSAllowedOrigins))
+	}
+	g.mux.Use(TenantMiddleware(logger, cfg.DevMode))
+	g.mux.Use(TenantForwardingMiddleware)
 
 	g.mux.Get("/healthz", g.healthz)
 	g.mux.Get("/healthz/alert-service", g.proxyToAlertHealth)
 	g.mux.Get("/healthz/command-service", g.proxyToCommandHealth)
 
-authMW := auth.AuthMiddleware(keystore)
-if cfg.DevMode {
-	authMW = func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, r)
-		})
+	authMW := auth.AuthMiddleware(keystore)
+	if cfg.DevMode {
+		authMW = func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				next.ServeHTTP(w, r)
+			})
+		}
+		logger.Warn("running in dev mode, auth is DISABLED")
 	}
-	logger.Warn("running in dev mode, auth is DISABLED")
-}
 
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/candles", g.getCandles)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/candles/export", g.exportCandles)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/indicators", g.getIndicator)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/symbols", g.listSymbols)
+	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Get("/v1/symbols/search", g.searchSymbols)
 
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Post("/v1/watchlists", g.proxyToCommand)
 	g.mux.With(authMW, RateLimitMiddleware(limiter, logger)).Post("/v1/alert-rules", g.proxyToCommand)
@@ -176,6 +177,35 @@ func (g *Gateway) listSymbols(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"symbols": nonil(symbols)})
+}
+
+func (g *Gateway) searchSymbols(w http.ResponseWriter, r *http.Request) {
+	tenantID := r.Header.Get("X-Tenant-Id")
+	q := r.URL.Query().Get("q")
+	limitStr := r.URL.Query().Get("limit")
+
+	limit := 50
+	if limitStr != "" {
+		parsed, err := strconv.Atoi(limitStr)
+		if err != nil || parsed < 1 || parsed > 200 {
+			writeError(w, http.StatusBadRequest, "limit must be between 1 and 200")
+			return
+		}
+		limit = parsed
+	}
+	if len(q) > 100 {
+		writeError(w, http.StatusBadRequest, "q must be at most 100 characters")
+		return
+	}
+
+	summaries, err := g.query.SearchSymbols(r.Context(), tenantID, q, int32(limit))
+	if err != nil {
+		g.logger.Error("search symbols failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "query service error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"symbols": nonil(summaries)})
 }
 
 func (g *Gateway) exportCandles(w http.ResponseWriter, r *http.Request) {

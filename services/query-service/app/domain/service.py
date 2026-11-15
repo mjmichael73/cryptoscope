@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from app.domain import indicators
 from app.domain.errors import ValidationError
-from app.domain.models import Candle, IndicatorPoint
+from app.domain.models import Candle, IndicatorPoint, SymbolSummary
 from app.domain.repository import ReadRepository
 
 _INTERVALS = {"1m", "5m", "1h", "1d"}
@@ -45,6 +45,16 @@ class QueryService:
 
     async def list_symbols(self, tenant_id: str) -> list[str]:
         return await self._repo.symbols(tenant_id)
+
+    async def search_symbols(
+        self, tenant_id: str, query: str, limit: int
+    ) -> list[SymbolSummary]:
+        if limit < 1 or limit > 200:
+            raise ValidationError("limit must be between 1 and 200")
+        if len(query) > 100:
+            raise ValidationError("query must be at most 100 characters")
+        normalized = query.strip().upper()
+        return await self._repo.search_symbols(tenant_id, normalized, limit)
 
     @staticmethod
     def _check_interval(interval: str) -> None:

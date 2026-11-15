@@ -4,6 +4,7 @@ import type {
   AlertTrigger,
   Candle,
   IndicatorPoint,
+  SymbolSummary,
 } from "../types";
 
 const GATEWAY = "/api";
@@ -39,6 +40,11 @@ export const client = {
 
   listSymbols(): Promise<{ symbols: string[] }> {
     return api("/v1/symbols");
+  },
+
+  searchSymbols(q = "", limit = 50): Promise<{ symbols: SymbolSummary[] }> {
+    const p = new URLSearchParams({ q, limit: String(limit) });
+    return api(`/v1/symbols/search?${p}`);
   },
 
   getCandles(

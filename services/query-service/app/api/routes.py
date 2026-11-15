@@ -16,7 +16,13 @@ from cryptoscope_shared.tenant import TenantIdentity
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.api.deps import require_tenant
-from app.api.schemas import CandleOut, IndicatorPointOut, SymbolsOut
+from app.api.schemas import (
+    CandleOut,
+    IndicatorPointOut,
+    SymbolSearchOut,
+    SymbolsOut,
+    SymbolSummaryOut,
+)
 from app.domain.errors import ValidationError
 from app.domain.service import QueryService
 
@@ -82,6 +88,31 @@ async def list_symbols(
 ) -> SymbolsOut:
     symbols = await _service(request).list_symbols(tenant.id)
     return SymbolsOut(symbols=symbols)
+
+
+@router.get("/symbols/search", response_model=SymbolSearchOut)
+async def search_symbols(
+    request: Request,
+    tenant: Annotated[TenantIdentity, Depends(require_tenant)],
+    q: str = Query(default=""),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> SymbolSearchOut:
+    try:
+        summaries = await _service(request).search_symbols(tenant.id, q, limit)
+    except ValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    return SymbolSearchOut(
+        symbols=[
+            SymbolSummaryOut(
+                symbol=s.symbol,
+                first_open_time_ms=s.first_open_time_ms,
+                last_open_time_ms=s.last_open_time_ms,
+                candle_count=s.candle_count,
+                intervals=s.intervals,
+            )
+            for s in summaries
+        ]
+    )
 
 
 @router.get("/candles/export")

@@ -9,7 +9,7 @@ from typing import Any
 import clickhouse_connect
 from clickhouse_connect.driver.client import Client
 
-from app.domain.models import Candle
+from app.domain.models import Candle, SymbolSummary
 
 
 @dataclass
@@ -121,3 +121,37 @@ class ClickHouseReadRepository:
         """
         rows = await self._pool.query(query, {"tenant_id": tenant_id})
         return [str(row[0]) for row in rows]
+
+    async def search_symbols(
+        self, tenant_id: str, query: str, limit: int
+    ) -> list[SymbolSummary]:
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query_sql = """
+            SELECT
+                symbol,
+                min(open_time) AS first_open_time,
+                max(open_time) AS last_open_time,
+                count() AS candle_count,
+                groupUniqArray(interval) AS intervals
+            FROM candles
+            WHERE tenant_id = %(tenant_id)s
+              AND symbol ILIKE %(pattern)s
+            GROUP BY symbol
+            ORDER BY symbol
+            LIMIT %(limit)s
+        """
+        rows = await self._pool.query(
+            query_sql,
+            {"tenant_id": tenant_id, "pattern": pattern, "limit": limit},
+        )
+        return [
+            SymbolSummary(
+                symbol=str(row[0]),
+                first_open_time_ms=int(row[1]),
+                last_open_time_ms=int(row[2]),
+                candle_count=int(row[3]),
+                intervals=sorted(str(i) for i in row[4]),
+            )
+            for row in rows
+        ]

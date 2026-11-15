@@ -67,3 +67,11 @@ export interface Watchlist {
   symbols: string[];
   created_at?: string;
 }
+
+export interface SymbolSummary {
+  symbol: string;
+  first_open_time_ms: number;
+  last_open_time_ms: number;
+  candle_count: number;
+  intervals: string[];
+}

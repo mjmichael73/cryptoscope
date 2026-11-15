@@ -77,6 +77,26 @@ class QueryServicer(query_pb2_grpc.QueryServiceServicer):
         symbols = await self._service.list_symbols(request.tenant_id)
         return query_pb2.ListSymbolsResponse(symbols=symbols)
 
+    async def SearchSymbols(self, request, context):
+        try:
+            summaries = await self._service.search_symbols(
+                request.tenant_id, request.query, request.limit
+            )
+        except ValidationError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+        return query_pb2.SearchSymbolsResponse(
+            symbols=[
+                query_pb2.SymbolSummary(
+                    symbol=s.symbol,
+                    first_open_time_ms=s.first_open_time_ms,
+                    last_open_time_ms=s.last_open_time_ms,
+                    candle_count=s.candle_count,
+                    intervals=s.intervals,
+                )
+                for s in summaries
+            ]
+        )
+
 
 async def serve_grpc(service: QueryService, port: int) -> grpc.aio.Server:
     server = grpc.aio.server()

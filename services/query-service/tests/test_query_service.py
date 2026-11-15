@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.domain.errors import ValidationError
+from app.domain.models import SymbolSummary
 from app.domain.service import QueryService
 from tests.conftest import TENANT_ID, FakeReadRepository, make_candles
 
@@ -45,3 +46,50 @@ async def test_list_symbols_passes_through():
     service = QueryService(repo)
 
     assert await service.list_symbols(TENANT_ID) == ["BTCUSDT", "ETHUSDT"]
+
+
+def _summary(symbol: str) -> SymbolSummary:
+    return SymbolSummary(
+        symbol=symbol,
+        first_open_time_ms=1_000_000,
+        last_open_time_ms=2_000_000,
+        candle_count=10,
+        intervals=["1m", "5m"],
+    )
+
+
+async def test_search_symbols_returns_summaries():
+    repo = FakeReadRepository(summaries=[_summary("BTCUSDT")])
+    service = QueryService(repo)
+
+    result = await service.search_symbols(TENANT_ID, "BTC", 50)
+
+    assert result == [_summary("BTCUSDT")]
+    assert repo.search_calls[0] == (TENANT_ID, "BTC", 50)
+
+
+async def test_search_symbols_uppercases_and_strips_query():
+    repo = FakeReadRepository()
+    service = QueryService(repo)
+
+    await service.search_symbols(TENANT_ID, "  eth ", 10)
+
+    assert repo.search_calls[0] == (TENANT_ID, "ETH", 10)
+
+
+async def test_search_symbols_rejects_limit_below_one():
+    service = QueryService(FakeReadRepository())
+    with pytest.raises(ValidationError):
+        await service.search_symbols(TENANT_ID, "", 0)
+
+
+async def test_search_symbols_rejects_limit_above_200():
+    service = QueryService(FakeReadRepository())
+    with pytest.raises(ValidationError):
+        await service.search_symbols(TENANT_ID, "", 201)
+
+
+async def test_search_symbols_rejects_overlong_query():
+    service = QueryService(FakeReadRepository())
+    with pytest.raises(ValidationError):
+        await service.search_symbols(TENANT_ID, "A" * 101, 50)

@@ -5,7 +5,7 @@ import warnings
 
 from cryptoscope_proto.cryptoscope.v1 import query_pb2 as cryptoscope_dot_v1_dot_query__pb2
 
-GRPC_GENERATED_VERSION = '1.78.0'
+GRPC_GENERATED_VERSION = '1.85.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class QueryServiceStub(object):
+class QueryServiceStub:
     """QueryService is the read side of the platform. It serves analytics derived
     from the market data pipeline and denormalized configuration read models.
     """
@@ -51,9 +51,14 @@ class QueryServiceStub(object):
                 request_serializer=cryptoscope_dot_v1_dot_query__pb2.ListSymbolsRequest.SerializeToString,
                 response_deserializer=cryptoscope_dot_v1_dot_query__pb2.ListSymbolsResponse.FromString,
                 _registered_method=True)
+        self.SearchSymbols = channel.unary_unary(
+                '/cryptoscope.v1.QueryService/SearchSymbols',
+                request_serializer=cryptoscope_dot_v1_dot_query__pb2.SearchSymbolsRequest.SerializeToString,
+                response_deserializer=cryptoscope_dot_v1_dot_query__pb2.SearchSymbolsResponse.FromString,
+                _registered_method=True)
 
 
-class QueryServiceServicer(object):
+class QueryServiceServicer:
     """QueryService is the read side of the platform. It serves analytics derived
     from the market data pipeline and denormalized configuration read models.
     """
@@ -71,6 +76,12 @@ class QueryServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def ListSymbols(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SearchSymbols(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -94,6 +105,11 @@ def add_QueryServiceServicer_to_server(servicer, server):
                     request_deserializer=cryptoscope_dot_v1_dot_query__pb2.ListSymbolsRequest.FromString,
                     response_serializer=cryptoscope_dot_v1_dot_query__pb2.ListSymbolsResponse.SerializeToString,
             ),
+            'SearchSymbols': grpc.unary_unary_rpc_method_handler(
+                    servicer.SearchSymbols,
+                    request_deserializer=cryptoscope_dot_v1_dot_query__pb2.SearchSymbolsRequest.FromString,
+                    response_serializer=cryptoscope_dot_v1_dot_query__pb2.SearchSymbolsResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'cryptoscope.v1.QueryService', rpc_method_handlers)
@@ -102,7 +118,7 @@ def add_QueryServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class QueryService(object):
+class QueryService:
     """QueryService is the read side of the platform. It serves analytics derived
     from the market data pipeline and denormalized configuration read models.
     """
@@ -178,6 +194,33 @@ class QueryService(object):
             '/cryptoscope.v1.QueryService/ListSymbols',
             cryptoscope_dot_v1_dot_query__pb2.ListSymbolsRequest.SerializeToString,
             cryptoscope_dot_v1_dot_query__pb2.ListSymbolsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SearchSymbols(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cryptoscope.v1.QueryService/SearchSymbols',
+            cryptoscope_dot_v1_dot_query__pb2.SearchSymbolsRequest.SerializeToString,
+            cryptoscope_dot_v1_dot_query__pb2.SearchSymbolsResponse.FromString,
             options,
             channel_credentials,
             insecure,

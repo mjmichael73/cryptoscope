@@ -12,6 +12,7 @@ service QueryService {
   rpc GetCandles(GetCandlesRequest) returns (GetCandlesResponse);
   rpc GetIndicator(GetIndicatorRequest) returns (GetIndicatorResponse);
   rpc ListSymbols(ListSymbolsRequest) returns (ListSymbolsResponse);
+  rpc SearchSymbols(SearchSymbolsRequest) returns (SearchSymbolsResponse);
 }
 
 message Candle {
@@ -59,4 +60,24 @@ message ListSymbolsRequest {
 
 message ListSymbolsResponse {
   repeated string symbols = 1;
+}
+
+// SymbolSummary describes the historical candle coverage of one symbol.
+message SymbolSummary {
+  string symbol = 1;
+  int64 first_open_time_ms = 2;
+  int64 last_open_time_ms = 3;
+  int64 candle_count = 4;
+  repeated string intervals = 5;
+}
+
+message SearchSymbolsRequest {
+  string tenant_id = 1;
+  // Optional case-insensitive substring filter. Empty matches all symbols.
+  string query = 2;
+  int32 limit = 3;
+}
+
+message SearchSymbolsResponse {
+  repeated SymbolSummary symbols = 1;
 }

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from app.domain.models import Candle
+from app.domain.models import Candle, SymbolSummary
 
 
 class ReadRepository(Protocol):
@@ -17,3 +17,7 @@ class ReadRepository(Protocol):
     ) -> list[Candle]: ...
 
     async def symbols(self, tenant_id: str) -> list[str]: ...
+
+    async def search_symbols(
+        self, tenant_id: str, query: str, limit: int
+    ) -> list[SymbolSummary]: ...

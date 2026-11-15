@@ -5,7 +5,7 @@ import warnings
 
 from cryptoscope_proto.cryptoscope.v1 import command_pb2 as cryptoscope_dot_v1_dot_command__pb2
 
-GRPC_GENERATED_VERSION = '1.78.0'
+GRPC_GENERATED_VERSION = '1.85.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class CommandServiceStub(object):
+class CommandServiceStub:
     """CommandService is the write side of the platform. It owns tenant
     configuration and emits domain events consumed elsewhere.
     """
@@ -48,7 +48,7 @@ class CommandServiceStub(object):
                 _registered_method=True)
 
 
-class CommandServiceServicer(object):
+class CommandServiceServicer:
     """CommandService is the write side of the platform. It owns tenant
     configuration and emits domain events consumed elsewhere.
     """
@@ -86,7 +86,7 @@ def add_CommandServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class CommandService(object):
+class CommandService:
     """CommandService is the write side of the platform. It owns tenant
     configuration and emits domain events consumed elsewhere.
     """
